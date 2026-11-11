@@ -4,6 +4,10 @@ Especificación de cada pantalla de la demo, escrita para pasársela a una IA (C
 
 La demo es una web app para móvil que se abre con un QR. No sustituye a las apps oficiales: les añade **cuánto fiarse** de lo que anuncian, con datos que hemos medido nosotros. Prioridades en [MOSCOW.md](MOSCOW.md).
 
+**Boceto visual:** capturas de cada pantalla en [`boceto/`](boceto/). Si el boceto y este manual no coinciden, manda el manual.
+
+**Principio de diseño:** las pantallas que más se usan (Paradas, Parada y ¿Cuándo salgo?) muestran solo lo crítico: cuándo llega y si fiarse. Las estadísticas, los porcentajes y las rarezas de cada línea van en la pantalla 2b, a la que se llega con el botón «i» de cada línea.
+
 ---
 
 ## 0. Cómo usar este manual con una IA
@@ -68,7 +72,9 @@ Vas a programar una pantalla de una web app estática. Sigue el manual al pie de
 
 ### 1.3 Barra inferior (en todas las pantallas)
 
-Cuatro botones, en este orden, con estos textos exactos: **«Paradas» · «¿Cuándo salgo?» · «Avisos» · «Info»**. El botón de la pantalla activa va en color principal. La pantalla 4 no tiene botón: se abre desde la 2.
+Cuatro botones, en este orden, con estos textos exactos: **«Paradas» · «¿Cuándo salgo?» · «Avisos» · «Info»**. El botón de la pantalla activa va en color principal. Las pantallas 2b y 4 no tienen botón: se abren desde la 2.
+
+Encima de la barra, cuando el usuario sigue un viaje, va la **franja de seguimiento** (sección 1.6).
 
 ### 1.4 Etiqueta de fiabilidad
 
@@ -86,6 +92,36 @@ Siempre se calcula con la función `nivelFiabilidad(p)` de la sección 2.3, y si
 - Redondear `p` a algo distinto de un número entero de porcentaje (0,823 → «82 %»).
 - Inventar paradas, líneas o cifras que no estén en `fiabilidad.json` o en `demo.json`.
 - Mezclar avisos simulados con avisos oficiales en la misma lista.
+- Poner porcentajes, intervalos o número de llegadas en las pantallas 1, 2 y 3. Van en la 2b.
+
+### 1.6 Franja de seguimiento (encima de la barra inferior)
+
+Una franja fija de 66 a 80 px de alto, pegada encima de la barra inferior, que aparece cuando el usuario sigue un viaje. Muestra un vehículo que avanza por una línea según lo que le falta. Se ve en las pantallas 1, 2 y 3. Si no se sigue ningún viaje, no aparece.
+
+| Parte | Contenido exacto |
+| --- | --- |
+| Texto izquierdo | «Siguiendo el {linea} · hasta tu parada» o «Siguiendo el {linea} · hasta tu destino» |
+| Texto derecho, color principal | Hasta tu parada: «{v.desde}–{v.hasta} min», o «Llegando» si `minutos <= 1`. Hasta destino: «Llegas {hora}» |
+| Línea | Gris `#D5D3CE`, de 3 px; la parte ya recorrida, en color principal |
+| Punto final | Círculo negro de 18 px a la derecha: tu parada o tu destino |
+| Vehículo | Caja de 30 × 26 px en color principal con el icono blanco de bus, tren o metro, según la red |
+| Paradas intermedias (solo hasta destino) | Círculo blanco con borde negro en cada transbordo, con su nombre debajo en 12 px |
+| El siguiente, debajo de la línea, en 13 px gris | Bus: «El siguiente sale en {v2.desde}–{v2.hasta} min», con la ventana de la segunda llegada. Tren: «Si lo pierdes: {linea} de las {hora}, llegas {hora}». Si no hay segunda llegada: «No hay otro anunciado todavía» |
+
+**Dónde va el vehículo** (copiar tal cual en `ventana.js`):
+
+```js
+// Posición del vehículo en la franja, en %, hasta tu parada. 30 min o más = al principio.
+export function posicionVehiculo(minutosAnunciados) {
+  return Math.max(4, Math.min(94, (1 - minutosAnunciados / 30) * 100));
+}
+```
+
+Hasta destino, la posición es la parte del viaje ya hecha: `(ahora - salida) / (llegada - salida) * 100`, con los mismos límites de 4 y 94.
+
+**Cambiar de modo:** al tocar el texto izquierdo se pasa de «hasta tu parada» a «hasta tu destino» y al revés. Si no hay destino elegido, en lugar de la línea aparece: «Elige a dónde vas para seguir el viaje hasta tu destino.»
+
+**Accesibilidad:** la línea lleva `role="img"` y un `aria-label` del tipo «El 104 está a 12 minutos de tu parada». Toda la franja es tocable y lleva a la pantalla 2 de esa parada.
 
 ---
 
@@ -144,11 +180,20 @@ export function nivelFiabilidad(p) {
 }
 
 // Ventana en la que llega 8 de cada 10 veces.
+// Si el margen pasa de 30 min el dato está mal (hay casillas con percentiles de ~900 min): se trata como sin datos.
 export function ventana(minutosAnunciados, r) {
   if (!r) return null;
   const desde = Math.max(0, Math.floor(minutosAnunciados + r.p10));
   const hasta = Math.ceil(minutosAnunciados + r.p90);
+  if (hasta - minutosAnunciados > 30 || minutosAnunciados - desde > 30) return null;
   return { desde, hasta, normal: Math.round(minutosAnunciados + r.mediana) };
+}
+
+// Tablero de 10 casillas para la pantalla 2b: cuántas de cada 10 veces llegó a tiempo, tarde o antes.
+export function casillas(r) {
+  const aTiempo = Math.round(r.p * 10);
+  const tarde = Math.min(10 - aTiempo, Math.round(r.tarde * 10));
+  return { aTiempo, tarde, antes: 10 - aTiempo - tarde };
 }
 
 export function porcentaje(x) {
@@ -175,14 +220,28 @@ Las paradas de la demo, sus llegadas de ejemplo y los casos de las pantallas 3, 
     {
       "id": "emt-5848", "nombre": "Mar de Cristal", "red": "emt", "tipo": "cabecera",
       "lat": 40.46939, "lon": -3.63887,
-      "llegadas": [ { "linea": "104", "destino": "Ciudad Lineal", "minutos": 12 } ]
+      "llegadas": [ { "linea": "104", "destino": "Ciudad Lineal", "minutos": 12 },
+                    { "linea": "104", "destino": "Ciudad Lineal", "minutos": 18 } ]
     }
   ],
+  "lineas": {
+    "104": {
+      "avisos": [
+        { "titulo": "A veces aparece un autobús que no estaba en la lista",
+          "texto": "Si la app dice 15 min o más, 4 de cada 10 veces sale otro antes. Mira la parada aunque falte mucho." },
+        { "titulo": "Aquí empieza la línea: «1 min» no es «ya»",
+          "texto": "Si marca 1 min, el autobús suele estar parado o está llegando; ha habido casos en que sale unos 6 min después. Si marca «>>», ya está recogiendo gente." },
+        { "titulo": "Pasa algo menos de lo que promete",
+          "texto": "Programado cada 10 a 12 min; de verdad, cada 13. 1 de cada 8 esperas pasa de 20 min." }
+      ]
+    }
+  },
   "aviso_oficial": null,
   "cuando_salgo": {
     "desde": "Móstoles Central", "hasta": "Nuevos Ministerios", "llegar_antes": "9:00", "dia": "laborable",
     "recomendada": { "salida": "7:35", "trayecto": "C5 de las 7:47 → Atocha → cualquier tren a Nuevos Ministerios",
-                     "llegada_habitual": "8:39", "peor_dia": "8:56", "dias": [1,1,1,1,1,1,1,1] },
+                     "llegada_habitual": "8:39", "peor_dia": "8:56", "dias": [1,1,1,1,1,1,1,1],
+                     "siguiente": { "linea": "C5", "hora": "7:49", "llegada": "8:44" } },
     "rapida": { "salida": "8:05", "trayecto": "C5 de las 8:17 con transbordo en Atocha",
                 "dias": [0,0,0,0,0,0,0,0,1] }
   },
@@ -218,6 +277,7 @@ En `dias`, cada número es un día medido: `1` es que llegó a tiempo y `0` que 
 | 4 | Aviso oficial | Solo si `demo.json.aviso_oficial` no es `null`. Fondo de aviso oficial |
 | 5 | Lista de favoritas | Una tarjeta por parada favorita: nombre, red y números de línea |
 | 6 | Lista sin favoritas | «Busca tu parada y pulsa la estrella para tenerla aquí.» |
+| 7 | Franja de seguimiento | Sección 1.6, solo si el usuario sigue un viaje. Al tocarla se abre la pantalla 2 de esa parada |
 
 **Comportamiento:**
 
@@ -243,22 +303,23 @@ En `dias`, cada número es un día medido: `1` es que llegó a tiempo y `0` que 
 | --- | --- | --- |
 | 1 | Cabecera | Nombre de la parada, en grande; debajo, la red. A la derecha, una estrella para favoritas |
 | 2 | Minimapa | Leaflet con OpenStreetMap, 160 px de alto, marcador en `lat`/`lon`, zoom 17, sin poder arrastrarlo |
-| 3 | Una tarjeta por llegada | Ver tabla siguiente |
-| 4 | Enlace | «Lo prometido frente a lo real →» (abre la pantalla 4) |
-| 5 | Pie | «Datos medidos del {datos_desde} al {datos_hasta}. Fuentes en Info.» Fechas de `meta`, en formato dd/mm |
+| 3 | Tarjeta de la primera llegada (la única con sombra) | Ver tabla siguiente |
+| 4 | Una fila por cada llegada siguiente | «{linea}» · «Entre {v.desde} y {v.hasta} min» · a la derecha, el texto de `nivelFiabilidad(r.p)` en su color. Sin datos: «Sin datos suficientes» |
+| 5 | Pie | «{tipo de día}, {hora}. Más datos en la i de cada línea.» |
+| 6 | Franja de seguimiento | Sección 1.6, siguiendo la primera llegada |
 
-**Tarjeta de llegada, con `r = consultar(...)` y `v = ventana(minutos, r)`:**
+**Tarjeta de la primera llegada, con `r = consultar(...)` y `v = ventana(minutos, r)`:**
 
-| Parte | Si `r` existe | Si `r` es `null` |
+| Parte | Si `v` existe | Si `v` es `null` |
 | --- | --- | --- |
 | Línea y destino | «{linea} · {destino}» | igual |
+| Botón «i» a la derecha (44 × 44 px, `aria-label` «Qué conviene saber del {linea}») | Abre la pantalla 2b de esa línea | igual |
 | Lo que dice la app oficial (texto pequeño, gris) | «La app oficial dice {minutos} min» | igual |
 | Cifra principal (32 px) | «Llega entre {v.desde} y {v.hasta} min» | «Sin datos suficientes» |
-| Barra de rango | De `v.desde` a `v.hasta`, con una marca en `v.normal` | no se muestra |
-| Texto bajo la barra | «8 de cada 10 veces llega en este margen» | no se muestra |
-| Etiqueta | `nivelFiabilidad(r.p).texto` con su color, seguido de «· acierta a ±2 min el {porcentaje(r.p)}» | no se muestra |
-| Consejo | «Si a los {v.hasta} min no ha llegado, algo pasa.» | no se muestra |
+| Etiqueta y consejo, en una fila | Etiqueta `nivelFiabilidad(r.p).texto` con su color de fondo y texto blanco, y al lado: «Si a los {v.hasta} min no ha llegado, algo pasa.» | no se muestra |
 | Aviso de estimación | Solo si `r.nivel !== "linea"`: «Estimación general de la red» | no se muestra |
+
+En esta pantalla **no** se muestran porcentajes, barras de rango ni número de llegadas: están en la 2b. El enlace a la pantalla 4 («Lo prometido frente a lo real →») va en la 2b.
 
 **Casos especiales:**
 
@@ -272,9 +333,41 @@ En `dias`, cada número es un día medido: `1` es que llegó a tiempo y `0` que 
 
 - [ ] Con `r = null` no aparece ningún porcentaje ni ventana.
 - [ ] Con `minutos = 45` aparece «Demasiado lejos para estimar».
+- [ ] Si `ventana()` devuelve `null` por un margen de más de 30 min, aparece «Sin datos suficientes».
 - [ ] La etiqueta coincide con la tabla de la sección 1.4 para `p = 0.80`, `0.60` y `0.40`.
 - [ ] Si `nivel` es `"red"`, aparece «Estimación general de la red».
+- [ ] No aparece ningún porcentaje en esta pantalla.
+- [ ] El botón «i» abre la pantalla 2b de esa línea.
+- [ ] La franja de seguimiento muestra el bus y «El siguiente sale en…».
 - [ ] La estrella añade y quita la parada de favoritas, y la pantalla 1 lo refleja.
+
+---
+
+## 4b. Pantalla 2b: Lo que conviene saber de la línea
+
+**Objetivo:** contar a quien no suele usar esa línea sus rarezas y lo fiable que es, de forma que se entienda de un vistazo. Aquí van todas las estadísticas que no caben en las pantallas principales.
+
+**Elementos, en este orden:**
+
+| # | Elemento | Contenido exacto |
+| --- | --- | --- |
+| 1 | Volver | «← {nombre de la parada}» |
+| 2 | Título | Número de la línea y «Lo que conviene saber» |
+| 3 | Rarezas de la línea | Una fila por elemento de `demo.json.lineas[linea].avisos`: `titulo` en negrita y `texto` debajo. Sin rarezas: «Esta línea no tiene nada raro que contar.» |
+| 4 | Tablero de 10 casillas | Título «De cada 10 veces que la app dijo «{minutos} min»». Diez casillas en una fila, de las que `casillas(r)` da cuántas: verdes (llegó cuando decía), ámbar (más de 2 min tarde) y blancas con borde discontinuo gris (más de 2 min antes), en ese orden |
+| 5 | Leyenda del tablero | «{aTiempo} llegaron cuando decía (±2 min)» · «{tarde} llegó/llegaron más de 2 min tarde» · «{antes} llegó/llegaron más de 2 min antes» (singular si es 1) |
+| 6 | Pie del tablero | «{tipo de día} por la {franja}, {n} llegadas medidas del {datos_desde} al {datos_hasta}.» |
+| 7 | Datos completos (cerrado por defecto, con `<details>`) | «Acierta a ±2 min el {porcentaje(r.p)} (intervalo del {porcentaje(r.ic[0])} al {porcentaje(r.ic[1])}). Tarde el {porcentaje(r.tarde)}, antes el {porcentaje(r.antes)}.» |
+| 8 | Enlace | «Lo prometido frente a lo real →» (abre la pantalla 4) |
+
+**Por qué un tablero y no porcentajes:** «8 de 10 casillas verdes» se entiende sin pensar; «77 % ± 3» no. Es la misma idea que el panel de los últimos números de una ruleta.
+
+**Comprobación:**
+
+- [ ] Con `p = 0.769`, `tarde = 0.137` y `antes = 0.094` salen 8 verdes, 1 ámbar y 1 blanca.
+- [ ] Las tres casillas se distinguen también sin color (la blanca lleva borde discontinuo).
+- [ ] «Datos completos» está cerrado al abrir la pantalla.
+- [ ] Una línea sin rarezas muestra el texto exacto del punto 3.
 
 ---
 
@@ -292,6 +385,7 @@ En `dias`, cada número es un día medido: `1` es que llegó a tiempo y `0` que 
 | 4 | Tarjeta de la opción rápida | Etiqueta «La opción más rápida» · «Sal a las {rapida.salida}» · trayecto · fila de cuadrados · texto «A tiempo {número de unos} de {total} días medidos» · etiqueta roja «Arriesgado» si llegó a tiempo menos de la mitad de los días |
 | 5 | Leyenda | Cuadrado azul «A tiempo» · cuadrado rojo «Tarde» |
 | 6 | Nota | «Caso real medido con el GPS de los trenes.» |
+| 7 | Franja de seguimiento | Sección 1.6, en modo «hasta tu destino»: tren, paradas Móstoles · Atocha · N. Ministerios, «Llegas {llegada_habitual}» y debajo «Si lo pierdes: {siguiente.linea} de las {siguiente.hora}, llegas {siguiente.llegada}» |
 
 **Fila de cuadrados:** un cuadrado de 16 × 16 px por cada elemento de `dias`, separados 4 px. Azul (`#1F5FD1`) si vale `1`; rojo si vale `0`.
 
@@ -370,7 +464,8 @@ Las dos cajas van una al lado de la otra si caben y una debajo de otra si no. Bo
 ## 9. Comprobación final antes de publicar
 
 - [ ] Se abre desde el QR en Android y en iPhone, y se ve bien a 360 px de ancho.
-- [ ] Las seis pantallas cumplen su lista de comprobación.
+- [ ] Las siete pantallas (1, 2, 2b, 3, 4, 5 y 6) cumplen su lista de comprobación.
+- [ ] Las pantallas 1, 2 y 3 no muestran porcentajes.
 - [ ] No hay ningún porcentaje ni ventana sin datos detrás.
 - [ ] No aparece el nombre de ninguna otra app ni los logotipos de los operadores.
 - [ ] `consultar.js` y `fiabilidad.json` son idénticos a los del repositorio de datos.
