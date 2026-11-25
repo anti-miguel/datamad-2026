@@ -28,11 +28,11 @@ from zoneinfo import ZoneInfo
 API = "https://openapi.emtmadrid.es"
 MADRID = ZoneInfo("Europe/Madrid")
 PUERTO = int(os.environ.get("PUERTO", "8790"))
-LLEGADAS_TTL_S = int(os.environ.get("LLEGADAS_TTL_S", "30"))
+LLEGADAS_TTL_S = int(os.environ.get("LLEGADAS_TTL_S", "10"))
 CERCANAS_TTL_S = int(os.environ.get("CERCANAS_TTL_S", "86400"))
 RADIO_M = int(os.environ.get("RADIO_M", "350"))
-TOPE_DIARIO = int(os.environ.get("TOPE_DIARIO", "3000"))
-CUOTA_MAX = int(os.environ.get("CUOTA_MAX", "18500"))
+TOPE_DIARIO = int(os.environ.get("TOPE_DIARIO", "19000"))
+CUOTA_MAX = int(os.environ.get("CUOTA_MAX", "19800"))
 POR_IP_MIN = int(os.environ.get("POR_IP_MIN", "300"))  # alto: en el evento mucha gente sale por la misma IP (wifi)
 
 CLIENT_ID = os.environ.get("EMT_CLIENT_ID", "").strip()

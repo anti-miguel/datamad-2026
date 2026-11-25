@@ -350,7 +350,7 @@ export default function Parada({
           )}
           <p className="text-[13px] text-suave">
             {parada.vivo
-              ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 30 s · ventanas medidas · Powered by EMT de Madrid`
+              ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 15 s · ventanas medidas · Powered by EMT de Madrid`
               : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas`}
           </p>
         </>

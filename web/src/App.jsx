@@ -71,7 +71,7 @@ function guardarLista(clave, lista) {
   }
 }
 
-const DIRECTO_CADA_MS = 30000;
+const DIRECTO_CADA_MS = 15000;
 
 function guardarFavoritas(lista) {
   try {
