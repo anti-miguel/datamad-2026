@@ -33,7 +33,7 @@ CERCANAS_TTL_S = int(os.environ.get("CERCANAS_TTL_S", "86400"))
 RADIO_M = int(os.environ.get("RADIO_M", "350"))
 TOPE_DIARIO = int(os.environ.get("TOPE_DIARIO", "3000"))
 CUOTA_MAX = int(os.environ.get("CUOTA_MAX", "18500"))
-POR_IP_MIN = int(os.environ.get("POR_IP_MIN", "40"))
+POR_IP_MIN = int(os.environ.get("POR_IP_MIN", "300"))  # alto: en el evento mucha gente sale por la misma IP (wifi)
 
 CLIENT_ID = os.environ.get("EMT_CLIENT_ID", "").strip()
 PASSKEY = os.environ.get("EMT_PASSKEY", "").strip()
@@ -42,7 +42,9 @@ PASSWORD = os.environ.get("EMT_PASSWORD", "").strip()
 CUERPO = json.dumps({"cultureInfo": "ES", "Text_StopRequired_YN": "N", "Text_EstimationsRequired_YN": "Y",
                      "Text_IncidencesRequired_YN": "N"}).encode()
 
-_cerrojo = threading.Lock()
+_cerrojo = threading.Lock()  # solo para tocar diccionarios, nunca durante una llamada a la EMT
+_cerrojo_token = threading.Lock()
+_cerrojos = defaultdict(threading.Lock)  # uno por entrada de la caché: la misma parada se pide una sola vez
 _token = {"valor": None, "caduca": 0.0, "cuota": 0}
 _uso = {"dia": None, "llamadas": 0}
 _cache = {}
@@ -59,12 +61,13 @@ def _relleno(v):
 
 def _gastar():
     """Cuenta una llamada a la EMT; False si hoy ya no se puede."""
-    if _uso["dia"] != _hoy():
-        _uso.update(dia=_hoy(), llamadas=0)
-    if _uso["llamadas"] >= TOPE_DIARIO or _token["cuota"] >= CUOTA_MAX:
-        return False
-    _uso["llamadas"] += 1
-    return True
+    with _cerrojo:
+        if _uso["dia"] != _hoy():
+            _uso.update(dia=_hoy(), llamadas=0)
+        if _uso["llamadas"] >= TOPE_DIARIO or _token["cuota"] >= CUOTA_MAX:
+            return False
+        _uso["llamadas"] += 1
+        return True
 
 
 def _json(req, timeout=20):
@@ -79,6 +82,10 @@ def _json(req, timeout=20):
 
 
 def _login():
+    # Como mucho un inicio de sesión cada 30 s: un error repetido no debe gastar la cuota en logins
+    if time.time() - _token.get("ultimo_login", 0) < 30:
+        raise RuntimeError("acceso a la EMT no disponible ahora")
+    _token["ultimo_login"] = time.time()
     if not _gastar():
         raise PermissionError("tope")
     cab = ({"X-ClientId": CLIENT_ID, "passKey": PASSKEY} if _relleno(CLIENT_ID) and _relleno(PASSKEY)
@@ -88,21 +95,34 @@ def _login():
     if not datos.get("accessToken"):
         raise RuntimeError(f"login rechazado (código {d.get('code')})")
     _token["valor"] = datos["accessToken"]
+    _token["desde"] = time.time()
     _token["caduca"] = time.time() + int(datos.get("tokenSecExpiration", 3600)) - 120
     _token["cuota"] = int((datos.get("apiCounter") or {}).get("current") or 0)
 
 
-def _emt(metodo, ruta, cuerpo=None):
-    if not _token["valor"] or time.time() >= _token["caduca"]:
+def _renovar(usado=None):
+    """Inicia sesión si el token falta, ha caducado o es el que acaba de fallar (una sola vez entre hilos)."""
+    with _cerrojo_token:
+        if usado is None and _token["valor"] and time.time() < _token["caduca"]:
+            return
+        if usado is not None and _token["valor"] != usado:
+            return  # otro hilo ya lo renovó
         _login()
+
+
+def _emt(metodo, ruta, cuerpo=None):
+    _renovar()
     for intento in range(2):
         if not _gastar():
             raise PermissionError("tope")
+        token = _token["valor"]
         req = urllib.request.Request(f"{API}{ruta}", data=cuerpo, method=metodo,
-                                     headers={"accessToken": _token["valor"], "Content-Type": "application/json"})
+                                     headers={"accessToken": token, "Content-Type": "application/json"})
         d = _json(req)
-        if (str(d.get("code", "")).startswith("8") or d.get("code") == "HTTP 401") and intento == 0:
-            _login()
+        # Con un token recién sacado, un código 8x es que la parada no existe: no se vuelve a iniciar sesión
+        reciente = time.time() - _token.get("desde", 0) < 600
+        if (str(d.get("code", "")).startswith("8") and not reciente or d.get("code") == "HTTP 401") and intento == 0:
+            _renovar(token)
             continue
         if str(d.get("code")) not in ("00", "0", "01"):
             raise RuntimeError(f"EMT código {d.get('code')}")
@@ -110,16 +130,30 @@ def _emt(metodo, ruta, cuerpo=None):
     raise RuntimeError("sin acceso")
 
 
+ERROR_TTL_S = 20
+
+
 def _cacheado(clave, ttl, funcion):
     with _cerrojo:
+        candado = _cerrojos[clave]
+    with candado:
         hit = _cache.get(clave)
-        if hit and time.time() - hit[0] < ttl:
+        if hit and isinstance(hit[1], RuntimeError) and time.time() - hit[0] < ERROR_TTL_S:
+            raise hit[1]  # paradas que no existen o fallos de la EMT: no se repite la consulta en 20 s
+        if hit and not isinstance(hit[1], RuntimeError) and time.time() - hit[0] < ttl:
             return hit[1]
-        valor = funcion()
-        _cache[clave] = (time.time(), valor)
-        if len(_cache) > 5000:
-            for k in sorted(_cache, key=lambda k: _cache[k][0])[:1000]:
-                _cache.pop(k, None)
+        try:
+            valor = funcion()
+        except RuntimeError as ex:
+            valor = ex
+        with _cerrojo:
+            _cache[clave] = (time.time(), valor)
+            if len(_cache) > 5000:
+                for k in sorted(_cache, key=lambda k: _cache[k][0])[:1000]:
+                    _cache.pop(k, None)
+                    _cerrojos.pop(k, None)
+        if isinstance(valor, RuntimeError):
+            raise valor
         return valor
 
 
@@ -130,6 +164,8 @@ def llegadas(parada):
         out = []
         for a in filas:
             seg = a.get("estimateArrive")
+            if "PERSONAL" in str(a.get("destination", "")).upper():
+                continue  # lanzaderas internas de la EMT
             if seg is None or seg > 7200:  # 999999 = sin estimación; más de 2 h no es una llegada real
                 continue
             out.append({"linea": str(a.get("line")), "destino": a.get("destination") or "",
@@ -172,7 +208,8 @@ class Manejador(BaseHTTPRequestHandler):
         self.wfile.write(b)
 
     def _ip_ok(self):
-        ip = self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0].strip()
+        # El proxy (Tailscale Funnel) añade la IP real al final; lo de delante lo puede escribir el cliente
+        ip = self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[-1].strip()
         ahora = time.time()
         with _cerrojo:
             q = _por_ip[ip]

@@ -76,6 +76,9 @@ function CercaDeTi({ estado, nuestras, emt, favoritas, nombres, onAbrir, onCerra
         <p className="text-[15px] text-suave">Necesitamos tu ubicación para buscar paradas cercanas. Actívala en el navegador y vuelve a pulsar.</p>
       )}
       {estado === "sin-gps" && <p className="text-[15px] text-suave">Este navegador no nos da tu ubicación. Busca la parada por su nombre.</p>}
+      {estado === "fuera" && nuestras.length === 0 && (
+        <p className="text-[15px] text-suave">Parece que no estás en Madrid. Busca la parada por su nombre.</p>
+      )}
       {estado === "listo" && nuestras.length === 0 && emt.length === 0 && (
         <p className="text-[15px] text-suave">No encontramos paradas de autobús de la EMT cerca. Busca la parada por su nombre.</p>
       )}
@@ -128,7 +131,7 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
           .sort((a, b) => a.metros - b.metros);
         const medidas = new Set(nuestras.map((x) => x.parada.id));
         cercanasEmt(yo.lat, yo.lon)
-          .then((d) => setCerca({ estado: "listo", nuestras, emt: (d.paradas ?? []).filter((p) => !medidas.has(`emt-${p.id}`)) }))
+          .then((d) => setCerca({ estado: d.fuera ? "fuera" : "listo", nuestras, emt: (d.paradas ?? []).filter((p) => !medidas.has(`emt-${p.id}`)) }))
           .catch(() => setCerca({ estado: "error-emt", nuestras, emt: [] }));
       },
       (e) => setCerca({ estado: e.code === 1 ? "denegado" : "sin-gps", nuestras: [], emt: [] }),

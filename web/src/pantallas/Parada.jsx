@@ -134,7 +134,7 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
             <span className="text-[15px] text-tinta">Si a los {a.v.hasta} min no ha llegado, algo pasa.</span>
           </div>
         )}
-        {a.r && a.r.nivel !== "linea" && <p className="mt-2 text-[14px] text-suave">Estimación general de la red</p>}
+        {a.r && !["linea", "parada"].includes(a.r.nivel) && <p className="mt-2 text-[14px] text-suave">Estimación general de la red</p>}
 
         {b && (
           <p className="mt-3 rounded-lg bg-hundido px-3 py-2 text-[15px] text-tinta-2">
