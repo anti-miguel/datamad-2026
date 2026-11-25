@@ -15,6 +15,7 @@ import Login from "./pantallas/Login.jsx";
 import { AvisoAbono, leerAbono, guardarAbono } from "./componentes/Abono.jsx";
 import { posicionVehiculo } from "./lib/ventana.js";
 import { aMinutos, calcularLlegada, contextoActual, iconoDeRed, llegadasVivas } from "./lib/util.js";
+import { enDirecto, llegadasEmt, numeroEmt } from "./lib/emt.js";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -54,6 +55,24 @@ function leerNombres() {
   }
 }
 
+function leerLista(clave) {
+  try {
+    return JSON.parse(localStorage.getItem(clave)) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function guardarLista(clave, lista) {
+  try {
+    localStorage.setItem(clave, JSON.stringify(lista));
+  } catch {
+    // sin almacenamiento dura hasta recargar
+  }
+}
+
+const DIRECTO_CADA_MS = 30000;
+
 function guardarFavoritas(lista) {
   try {
     localStorage.setItem("favoritas", JSON.stringify(lista));
@@ -88,6 +107,11 @@ export default function App() {
   const [bajada, setBajada] = useState(null);
   const [sesion, setSesion] = useState(leerSesion);
   const [abono, setAbono] = useState(() => leerAbono());
+  // Paradas de la EMT abiertas desde «Cerca de ti» (no están en la demo) y las últimas consultadas
+  const [extra, setExtra] = useState(() => leerLista("paradas_extra"));
+  const [recientes, setRecientes] = useState(() => leerLista("recientes"));
+  // Llegadas en directo por parada: { "emt-4613": { llegadas, hora, error } }
+  const [directo, setDirecto] = useState({});
 
   function cambiarAbono(a) {
     guardarAbono(a);
@@ -171,8 +195,44 @@ export default function App() {
     window.scrollTo(0, 0);
   }, [pantalla, paradaId, rutaId]);
 
-  const parada = demo?.paradas.find((p) => p.id === paradaId) ?? null;
-  const paradaSeguida = demo?.paradas.find((p) => p.id === seg.paradaId) ?? null;
+  const todas = useMemo(
+    () => (demo ? [...demo.paradas, ...extra.filter((e) => !demo.paradas.some((p) => p.id === e.id))] : []),
+    [demo, extra],
+  );
+
+  // Con datos en directo, la parada usa las llegadas de la EMT en vez de los minutos de la demo
+  const conDirecto = useCallback(
+    (p) => {
+      if (!p) return null;
+      const d = directo[p.id];
+      if (d?.llegadas) return { ...p, llegadas: d.llegadas, vivo: true, horaDirecto: d.hora };
+      if (p.directa) return { ...p, llegadas: [], vivo: true, sinDirecto: Boolean(d?.error) };
+      return p;
+    },
+    [directo],
+  );
+
+  const parada = useMemo(() => conDirecto(todas.find((p) => p.id === paradaId)), [todas, paradaId, conDirecto]);
+  const paradaSeguida = useMemo(() => conDirecto(todas.find((p) => p.id === seg.paradaId)), [todas, seg.paradaId, conDirecto]);
+
+  // Consulta la EMT cada 30 s para la parada abierta y la que se sigue en la franja
+  const aConsultar = [...new Set([pantalla === "parada" ? paradaId : null, seg.paradaId].filter((id) => numeroEmt(id)))].join(",");
+  useEffect(() => {
+    if (!aConsultar || !enDirecto()) return;
+    let activo = true;
+    const consultar = () =>
+      aConsultar.split(",").forEach((id) =>
+        llegadasEmt(numeroEmt(id))
+          .then((d) => activo && setDirecto((x) => ({ ...x, [id]: { llegadas: d.llegadas, hora: d.hora } })))
+          .catch(() => activo && setDirecto((x) => ({ ...x, [id]: { ...x[id], error: true } }))),
+      );
+    consultar();
+    const t = setInterval(consultar, DIRECTO_CADA_MS);
+    return () => {
+      activo = false;
+      clearInterval(t);
+    };
+  }, [aConsultar]);
 
   const calcular = useCallback(
     (p) => (datos ? llegadasVivas(p, transcurrido).map((l) => calcularLlegada(datos, p, l, contexto)) : []),
@@ -182,7 +242,19 @@ export default function App() {
   const llegadas = useMemo(() => (parada ? calcular(parada) : []), [parada, calcular]);
   const llegadasSeguidas = useMemo(() => (paradaSeguida ? calcular(paradaSeguida) : []), [paradaSeguida, calcular]);
 
-  function abrirParada(id) {
+  function abrirParada(id, nueva = null) {
+    if (nueva && !todas.some((p) => p.id === id)) {
+      setExtra((lista) => {
+        const l = [nueva, ...lista.filter((p) => p.id !== id)].slice(0, 30);
+        guardarLista("paradas_extra", l);
+        return l;
+      });
+    }
+    setRecientes((lista) => {
+      const l = [id, ...lista.filter((x) => x !== id)].slice(0, 5);
+      guardarLista("recientes", l);
+      return l;
+    });
     setParadaId(id);
     setSeg((s) => ({ ...s, paradaId: id, modo: "parada" }));
     setPantalla("parada");
@@ -276,6 +348,8 @@ export default function App() {
         <section id="pantalla-paradas" hidden={pantalla !== "paradas"}>
           <Paradas
             demo={demo}
+            todas={todas}
+            recientes={recientes}
             favoritas={favoritas}
             nombres={nombres}
             usuario={sesion.nombre}
@@ -304,7 +378,7 @@ export default function App() {
                 setLineaSel(l);
                 setPantalla("linea");
               }}
-              cargando={!datos && !error}
+              cargando={(!datos && !error) || (parada.directa && !directo[parada.id] && enDirecto())}
               error={error}
               onReintentar={() => setIntento((n) => n + 1)}
             />

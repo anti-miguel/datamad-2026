@@ -71,6 +71,9 @@ export function calcularLlegada(datos, parada, llegada, contexto) {
 // Llegadas que siguen pendientes tras «transcurrido» minutos de demo.
 // Cuando pasa el último autobús, la demo vuelve a empezar (ciclo), así nunca se queda vacía.
 export function llegadasVivas(parada, transcurrido) {
+  // En directo (EMT): los minutos ya son los de ahora. «0» es que está llegando: se calcula como 1 min.
+  if (parada.vivo) return parada.llegadas.map((l) => ({ ...l, minutos: Math.max(1, l.minutos) }));
+  if (parada.llegadas.length === 0) return [];
   const max = Math.max(...parada.llegadas.map((l) => l.minutos));
   const t = max > 0 ? transcurrido % max : 0;
   return parada.llegadas

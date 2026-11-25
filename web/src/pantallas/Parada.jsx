@@ -309,7 +309,7 @@ export default function Parada({
         </div>
       </div>
 
-      <Minimapa lat={parada.lat} lon={parada.lon} />
+      {parada.lat != null && parada.lon != null && <Minimapa lat={parada.lat} lon={parada.lon} />}
 
       {error ? (
         <Tarjeta className="space-y-3 p-4">
@@ -339,8 +339,19 @@ export default function Parada({
               aproximado={parada.recorrido_aproximado}
             />
           ))}
+          {porLinea.length === 0 && (
+            <Tarjeta className="p-4">
+              <p className="text-[16px] text-tinta">
+                {parada.sinDirecto
+                  ? "Ahora no podemos consultar la EMT. Prueba otra vez en un rato."
+                  : "Ahora mismo la EMT no anuncia ningún autobús en esta parada."}
+              </p>
+            </Tarjeta>
+          )}
           <p className="text-[13px] text-suave">
-            {tipoDia}, {horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas
+            {parada.vivo
+              ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 30 s · ventanas medidas · Powered by EMT de Madrid`
+              : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas`}
           </p>
         </>
       )}

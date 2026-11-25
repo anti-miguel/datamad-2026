@@ -1003,7 +1003,11 @@
     }
   ],
   "favoritas_iniciales": [
-    "emt-4613"
+    "emt-4613",
+    "metro-ventas",
+    "inter-09208",
+    "renfe-vicalvaro",
+    "emt-5848"
   ],
   "nombres_iniciales": {
     "emt-4613": "Parada del 4 a la uni"
