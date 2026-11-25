@@ -10,6 +10,51 @@ async function pedir(ruta) {
 }
 
 export const llegadasEmt = (numero) => pedir(`llegadas?parada=${encodeURIComponent(numero)}`);
+export const llegadasMetro = (andenes) => pedir(`metro?andenes=${encodeURIComponent(andenes.join(","))}`);
+
+// Estaciones de Metro (GTFS oficial, servidor/indice_paradas_metro.py): { estaciones: [...], nombres: { "4_63": "Diego de Leon" } }
+let indiceMetro = null;
+export function cargarIndiceMetro() {
+  indiceMetro ??= fetch(`${BASE}datos/paradas_metro.json`)
+    .then((r) => {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    })
+    .then((d) => ({
+      nombres: d.nombres,
+      estaciones: d.estaciones.map(([id, nombre, lat, lon, andenes, lineas]) => ({ id, nombre, lat, lon, andenes, lineas: lineas ? lineas.split(" ") : [] })),
+    }))
+    .catch((e) => {
+      indiceMetro = null;
+      throw e;
+    });
+  return indiceMetro;
+}
+
+// Estación de Metro que no está en la demo
+export function paradaMetroViva(e) {
+  return {
+    id: `metro-${e.id}`,
+    nombre: e.nombre,
+    red: "metro",
+    tipo: "estacion",
+    lat: e.lat,
+    lon: e.lon,
+    lineas: e.lineas,
+    andenes: e.andenes,
+    etiqueta: `Metro · estación de ${e.nombre}`,
+    llegadas: [],
+    directa: true,
+  };
+}
+
+// Qué hay que pedir en directo para una parada: { tipo: "emt", numero } o { tipo: "metro", andenes } o null
+export function consultaDirecto(p) {
+  if (!p) return null;
+  if (p.red === "emt" && numeroEmt(p.id) && /^\d+$/.test(numeroEmt(p.id))) return { tipo: "emt", numero: numeroEmt(p.id) };
+  if (p.red === "metro" && p.andenes?.length) return { tipo: "metro", andenes: p.andenes };
+  return null;
+}
 export const cercanasEmt = (lat, lon) => pedir(`cercanas?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`);
 
 // Con ?hora o ?demo la app enseña siempre los minutos de la demo, para ensayar el pitch igual cada vez

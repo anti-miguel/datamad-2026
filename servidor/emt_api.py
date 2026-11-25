@@ -15,6 +15,7 @@ Variables: EMT_EMAIL y EMT_PASSWORD (o EMT_CLIENT_ID y EMT_PASSKEY), PUERTO (879
 """
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -192,6 +193,53 @@ def cercanas(lat, lon):
     return _cacheado(("ce", la, lo), CERCANAS_TTL_S, pedir)
 
 
+# Metro: widget público de tiempos del Consorcio (sin credenciales). Un andén por consulta.
+CRTM = "https://www.crtm.es/widgets/api/GetStopsTimes.php?codStop={}&type=1&orderBy=2&stopTimesByIti=3"
+CRTM_UA = {"User-Agent": "yavoy (DATAMAD 2026, demo de la final)"}
+
+
+def _anden_metro(codigo):
+    def pedir():
+        try:
+            with urllib.request.urlopen(urllib.request.Request(CRTM.format(codigo), headers=CRTM_UA), timeout=15) as r:
+                d = json.load(r)["stopTimes"]
+        except (ValueError, KeyError, OSError) as ex:
+            raise RuntimeError("el servicio de tiempos del Consorcio no responde") from ex
+        t = d.get("times") or {}
+        lista = t.get("Time", []) if isinstance(t, dict) else []
+        lista = lista if isinstance(lista, list) else [lista]
+        out = []
+        for x in lista:
+            try:
+                llega = datetime.fromisoformat(x["time"]).timestamp()
+            except (KeyError, TypeError, ValueError):
+                continue
+            out.append({"linea": str((x.get("line") or {}).get("shortDescription") or ""),
+                        "destino": (x.get("destinationStop") or {}).get("codStop") or "", "llega": llega})
+        return out
+    return _cacheado(("me", codigo), LLEGADAS_TTL_S, pedir)
+
+
+def metro(andenes):
+    filas, vistos, fallos = [], set(), 0
+    for c in andenes:
+        try:
+            for a in _anden_metro(c):
+                clave = (a["linea"], a["destino"], round(a["llega"] / 30))
+                if clave not in vistos:
+                    vistos.add(clave)
+                    filas.append(a)
+        except RuntimeError:
+            fallos += 1
+    if fallos == len(andenes):
+        raise RuntimeError("el servicio de tiempos del Consorcio no responde")
+    ahora = time.time()
+    out = [{"linea": a["linea"], "destino": a["destino"], "minutos": max(0, round((a["llega"] - ahora) / 60))}
+           for a in filas if -60 < a["llega"] - ahora < 7200]
+    out.sort(key=lambda x: x["minutos"])
+    return {"llegadas": out, "hora": int(ahora)}
+
+
 class Manejador(BaseHTTPRequestHandler):
     server_version = "yavoy-api"
 
@@ -231,6 +279,11 @@ class Manejador(BaseHTTPRequestHandler):
         if not self._ip_ok():
             return self._responder(429, {"error": "demasiadas consultas, espera un minuto"})
         try:
+            if ruta == "metro":
+                andenes = [a for a in q.get("andenes", [""])[0].split(",") if a]
+                if not andenes or len(andenes) > 6 or not all(re.fullmatch(r"4_\d{1,4}", a) for a in andenes):
+                    return self._responder(400, {"error": "estación no válida"})
+                return self._responder(200, metro(andenes))
             if ruta == "llegadas":
                 parada = q.get("parada", [""])[0]
                 if not parada.isdigit() or len(parada) > 6:

@@ -15,7 +15,7 @@ import Login from "./pantallas/Login.jsx";
 import { AvisoAbono, leerAbono, guardarAbono } from "./componentes/Abono.jsx";
 import { posicionVehiculo } from "./lib/ventana.js";
 import { aMinutos, calcularLlegada, contextoActual, iconoDeRed, llegadasVivas } from "./lib/util.js";
-import { enDirecto, llegadasEmt, numeroEmt } from "./lib/emt.js";
+import { cargarIndiceMetro, consultaDirecto, enDirecto, llegadasEmt, llegadasMetro } from "./lib/emt.js";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -215,14 +215,26 @@ export default function App() {
   const parada = useMemo(() => conDirecto(todas.find((p) => p.id === paradaId)), [todas, paradaId, conDirecto]);
   const paradaSeguida = useMemo(() => conDirecto(todas.find((p) => p.id === seg.paradaId)), [todas, seg.paradaId, conDirecto]);
 
-  // Consulta la EMT cada 30 s para la parada abierta y la que se sigue en la franja
-  const aConsultar = [...new Set([pantalla === "parada" ? paradaId : null, seg.paradaId].filter((id) => numeroEmt(id)))].join(",");
+  // Consulta en directo (EMT o Metro) la parada abierta y la que se sigue en la franja
+  const aConsultar = JSON.stringify(
+    [...new Set([pantalla === "parada" ? paradaId : null, seg.paradaId])]
+      .map((id) => [id, consultaDirecto(todas.find((p) => p.id === id))])
+      .filter(([, c]) => c),
+  );
   useEffect(() => {
-    if (!aConsultar || !enDirecto()) return;
+    const lista = JSON.parse(aConsultar);
+    if (!lista.length || !enDirecto()) return;
     let activo = true;
+    const pedirUna = (c) =>
+      c.tipo === "emt"
+        ? llegadasEmt(c.numero)
+        : Promise.all([llegadasMetro(c.andenes), cargarIndiceMetro()]).then(([d, ix]) => ({
+            ...d,
+            llegadas: d.llegadas.map((l) => ({ ...l, destino: ix.nombres[l.destino] ?? l.destino })),
+          }));
     const consultar = () =>
-      aConsultar.split(",").forEach((id) =>
-        llegadasEmt(numeroEmt(id))
+      lista.forEach(([id, c]) =>
+        pedirUna(c)
           .then((d) => activo && setDirecto((x) => ({ ...x, [id]: { llegadas: d.llegadas, hora: d.hora } })))
           .catch(() => activo && setDirecto((x) => ({ ...x, [id]: { ...x[id], error: true } }))),
       );

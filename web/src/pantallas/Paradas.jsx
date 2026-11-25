@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Linea, Tarjeta } from "../componentes/Comunes.jsx";
 import { IconoLupa, IconoAviso, IconoEstrella, IconoPin } from "../componentes/Iconos.jsx";
-import { cercanasEmt, distanciaM, paradaEmtViva, textoDistancia } from "../lib/emt.js";
+import { cargarIndiceMetro, cercanasEmt, distanciaM, paradaEmtViva, paradaMetroViva, textoDistancia } from "../lib/emt.js";
 import { NOMBRE_RED, normalizar } from "../lib/util.js";
 import { EscenaSegunModo } from "../componentes/Escena.jsx";
 import { Logo } from "../componentes/Logo.jsx";
@@ -31,6 +31,12 @@ function DatosMedidos() {
 
 const MAX_NUESTRAS_M = 3000;
 const MAX_RESULTADOS_EMT = 20;
+const MAX_METRO_CERCA_M = 1000;
+
+// Estaciones de Metro que ya son nuestras (demo): no se repiten en las listas en directo
+function esNuestraMetro(demo, estacion) {
+  return demo.paradas.some((p) => p.red === "metro" && normalizar(p.nombre) === normalizar(estacion.nombre));
+}
 
 // Todas las paradas de la EMT (GTFS oficial, servidor/indice_paradas_emt.py). Se descarga la primera vez que se busca.
 let indiceEmt = null;
@@ -79,7 +85,7 @@ function TarjetaParada({ parada, favorita, nombre, onAbrir, distancia = null }) 
 }
 
 // «Cerca de ti»: nuestras paradas medidas que están cerca y las paradas de la EMT de alrededor, con llegadas en directo
-function CercaDeTi({ estado, nuestras, emt, favoritas, nombres, onAbrir, onCerrar }) {
+function CercaDeTi({ estado, nuestras, metro = [], emt, favoritas, nombres, onAbrir, onCerrar }) {
   return (
     <section className="space-y-3" aria-live="polite">
       <div className="flex items-center justify-between">
@@ -96,7 +102,7 @@ function CercaDeTi({ estado, nuestras, emt, favoritas, nombres, onAbrir, onCerra
       {estado === "fuera" && nuestras.length === 0 && (
         <p className="text-[15px] text-suave">Parece que no estás en Madrid. Busca la parada por su nombre.</p>
       )}
-      {estado === "listo" && nuestras.length === 0 && emt.length === 0 && (
+      {estado === "listo" && nuestras.length === 0 && metro.length === 0 && emt.length === 0 && (
         <p className="text-[15px] text-suave">No encontramos paradas de autobús de la EMT cerca. Busca la parada por su nombre.</p>
       )}
       {nuestras.map(({ parada, metros }) => (
@@ -109,6 +115,19 @@ function CercaDeTi({ estado, nuestras, emt, favoritas, nombres, onAbrir, onCerra
           onAbrir={() => onAbrir(parada.id)}
         />
       ))}
+      {metro.map(({ estacion, metros }) => {
+        const parada = paradaMetroViva(estacion);
+        return (
+          <TarjetaParada
+            key={parada.id}
+            parada={parada}
+            favorita={favoritas.includes(parada.id)}
+            nombre={nombres[parada.id]}
+            distancia={metros}
+            onAbrir={() => onAbrir(parada.id, parada)}
+          />
+        );
+      })}
       {emt.map((p) => {
         const parada = paradaEmtViva(p);
         return (
@@ -135,6 +154,7 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
   const [filtro, setFiltro] = useState("todo");
   const [cerca, setCerca] = useState(null); // { estado, nuestras, emt }
   const [emtTodas, setEmtTodas] = useState(null); // null = sin cargar, "error" o la lista
+  const [metroTodas, setMetroTodas] = useState(null);
 
   function buscarCerca() {
     if (!navigator.geolocation) return setCerca({ estado: "sin-gps", nuestras: [], emt: [] });
@@ -148,9 +168,20 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
           .filter((x) => x.metros <= MAX_NUESTRAS_M)
           .sort((a, b) => a.metros - b.metros);
         const medidas = new Set(nuestras.map((x) => x.parada.id));
-        cercanasEmt(yo.lat, yo.lon)
-          .then((d) => setCerca({ estado: d.fuera ? "fuera" : "listo", nuestras, emt: (d.paradas ?? []).filter((p) => !medidas.has(`emt-${p.id}`)) }))
-          .catch(() => setCerca({ estado: "error-emt", nuestras, emt: [] }));
+        const metroCerca = cargarIndiceMetro()
+          .then((ix) =>
+            ix.estaciones
+              .filter((e) => !esNuestraMetro(demo, e))
+              .map((estacion) => ({ estacion, metros: distanciaM(yo, estacion) }))
+              .filter((x) => x.metros <= MAX_METRO_CERCA_M)
+              .sort((a, b) => a.metros - b.metros)
+              .slice(0, 3),
+          )
+          .catch(() => []);
+        Promise.all([cercanasEmt(yo.lat, yo.lon).catch(() => null), metroCerca]).then(([d, metro]) => {
+          if (!d) return setCerca({ estado: "error-emt", nuestras, metro, emt: [] });
+          setCerca({ estado: d.fuera ? "fuera" : "listo", nuestras, metro, emt: (d.paradas ?? []).filter((p) => !medidas.has(`emt-${p.id}`)) });
+        });
       },
       (e) => setCerca({ estado: e.code === 1 ? "denegado" : "sin-gps", nuestras: [], emt: [] }),
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
@@ -169,6 +200,23 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
     if (!buscando || Array.isArray(emtTodas)) return;
     cargarIndiceEmt().then(setEmtTodas).catch(() => setEmtTodas("error"));
   }, [buscando, emtTodas]);
+
+  useEffect(() => {
+    if (!buscando || Array.isArray(metroTodas)) return;
+    cargarIndiceMetro()
+      .then((ix) => setMetroTodas(ix.estaciones.filter((e) => !esNuestraMetro(demo, e)).map((e) => ({ ...e, clave: normalizar(e.nombre) }))))
+      .catch(() => setMetroTodas("error"));
+  }, [buscando, metroTodas, demo]);
+
+  const conMetro = ["todo", "metro"].includes(filtro);
+  const resultadosMetro = useMemo(() => {
+    if (!buscando || !Array.isArray(metroTodas) || !conMetro) return [];
+    const palabras = q.split(/\s+/).filter(Boolean);
+    return metroTodas
+      .filter((e) => palabras.every((w) => e.clave.includes(w)) || e.lineas.some((l) => normalizar(l) === q))
+      .sort((a, b) => b.clave.startsWith(q) - a.clave.startsWith(q) || a.nombre.localeCompare(b.nombre))
+      .slice(0, 10);
+  }, [buscando, metroTodas, conMetro, q]);
 
   // Paradas de la EMT que no son nuestras: por nombre (todas las palabras, en cualquier orden) o por número
   const conEmt = ["todo", "emt"].includes(filtro);
@@ -265,6 +313,19 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
           {resultados.map((p) => (
             <TarjetaParada key={p.id} parada={p} favorita={favoritas.includes(p.id)} nombre={nombres[p.id]} onAbrir={() => onAbrirParada(p.id)} />
           ))}
+          {resultadosMetro.length > 0 && <h2 className="pt-1 text-[16px] font-bold text-tinta-2">Estaciones de Metro · en directo</h2>}
+          {resultadosMetro.map((e) => {
+            const parada = paradaMetroViva(e);
+            return (
+              <TarjetaParada
+                key={parada.id}
+                parada={parada}
+                favorita={favoritas.includes(parada.id)}
+                nombre={nombres[parada.id]}
+                onAbrir={() => onAbrirParada(parada.id, parada)}
+              />
+            );
+          })}
           {resultadosEmt.length > 0 && <h2 className="pt-1 text-[16px] font-bold text-tinta-2">Paradas de la EMT · en directo</h2>}
           {resultadosEmt.map((p) => {
             const parada = paradaEmtViva(p);
@@ -278,12 +339,12 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
               />
             );
           })}
-          {resultados.length === 0 && resultadosEmt.length === 0 && emtTodas === null && conEmt && (
+          {resultados.length === 0 && resultadosEmt.length === 0 && resultadosMetro.length === 0 && ((emtTodas === null && conEmt) || (metroTodas === null && conMetro)) && (
             <div className="h-[90px] animate-pulse rounded-2xl bg-linea" aria-label="Buscando" />
           )}
-          {resultados.length === 0 && resultadosEmt.length === 0 && (emtTodas !== null || !conEmt) && (
+          {resultados.length === 0 && resultadosEmt.length === 0 && resultadosMetro.length === 0 && (emtTodas !== null || !conEmt) && (metroTodas !== null || !conMetro) && (
             <p className="text-[15px] text-suave">
-              No encontramos esa parada. Buscamos en nuestras paradas medidas y en todas las de autobús de la EMT, por nombre o por número.
+              No encontramos esa parada. Buscamos en nuestras paradas medidas, en todas las paradas de autobús de la EMT (por nombre o número) y en las estaciones de Metro.
             </p>
           )}
         </section>

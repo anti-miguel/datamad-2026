@@ -303,8 +303,8 @@ export default function Parada({
           </button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {porLinea.map((g) => (
-            <Linea key={g.linea} linea={g.linea} red={parada.red} />
+          {(porLinea.length ? porLinea.map((g) => g.linea) : parada.lineas ?? []).map((l) => (
+            <Linea key={l} linea={l} red={parada.red} />
           ))}
         </div>
       </div>
@@ -342,15 +342,21 @@ export default function Parada({
           {porLinea.length === 0 && (
             <Tarjeta className="p-4">
               <p className="text-[16px] text-tinta">
-                {parada.sinDirecto
-                  ? "Ahora no podemos consultar la EMT. Prueba otra vez en un rato."
-                  : "Ahora mismo la EMT no anuncia ningún autobús en esta parada."}
+                {parada.red === "metro"
+                  ? parada.sinDirecto
+                    ? "Ahora no podemos darte los minutos del Metro: el servicio de tiempos del Consorcio no responde. Prueba otra vez en un rato."
+                    : "Ahora mismo el Metro no anuncia ningún tren en esta estación."
+                  : parada.sinDirecto
+                    ? "Ahora no podemos consultar la EMT. Prueba otra vez en un rato."
+                    : "Ahora mismo la EMT no anuncia ningún autobús en esta parada."}
               </p>
             </Tarjeta>
           )}
           <p className="text-[13px] text-suave">
             {parada.vivo
-              ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 15 s · ventanas medidas · Powered by EMT de Madrid`
+              ? parada.red === "metro"
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Metro, se actualizan cada 15 s · ventanas medidas · Fuente: Consorcio Regional de Transportes de Madrid`
+                : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 15 s · ventanas medidas · Powered by EMT de Madrid`
               : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas`}
           </p>
         </>
