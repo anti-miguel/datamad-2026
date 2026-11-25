@@ -1,5 +1,5 @@
 // Pantalla 1: Paradas (inicio). Objetivo: llegar en dos toques a una parada.
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Linea, Tarjeta } from "../componentes/Comunes.jsx";
 import { IconoLupa, IconoAviso, IconoEstrella, IconoPin } from "../componentes/Iconos.jsx";
 import { cercanasEmt, distanciaM, paradaEmtViva, textoDistancia } from "../lib/emt.js";
@@ -30,6 +30,23 @@ function DatosMedidos() {
 }
 
 const MAX_NUESTRAS_M = 3000;
+const MAX_RESULTADOS_EMT = 20;
+
+// Todas las paradas de la EMT (GTFS oficial, servidor/indice_paradas_emt.py). Se descarga la primera vez que se busca.
+let indiceEmt = null;
+function cargarIndiceEmt() {
+  indiceEmt ??= fetch(`${import.meta.env.BASE_URL}datos/paradas_emt.json`)
+    .then((r) => {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    })
+    .then((filas) => filas.map(([id, nombre, lat, lon, lineas]) => ({ id, nombre, lat, lon, lineas: lineas ? lineas.split(" ") : [], clave: normalizar(nombre) })))
+    .catch((e) => {
+      indiceEmt = null; // se reintenta en la siguiente búsqueda
+      throw e;
+    });
+  return indiceEmt;
+}
 
 function numeroDeParada(parada) {
   return parada.id.split("-")[1];
@@ -117,6 +134,7 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
   const [busqueda, setBusqueda] = useState("");
   const [filtro, setFiltro] = useState("todo");
   const [cerca, setCerca] = useState(null); // { estado, nuestras, emt }
+  const [emtTodas, setEmtTodas] = useState(null); // null = sin cargar, "error" o la lista
 
   function buscarCerca() {
     if (!navigator.geolocation) return setCerca({ estado: "sin-gps", nuestras: [], emt: [] });
@@ -146,6 +164,24 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
     ? porModo.filter((p) => normalizar(p.nombre).includes(q) || normalizar(nombres[p.id] ?? "").includes(q) || lineasDe(p).some((l) => normalizar(l).includes(q)))
     : [];
   const listaFavoritas = porModo.filter((p) => favoritas.includes(p.id));
+
+  useEffect(() => {
+    if (!buscando || Array.isArray(emtTodas)) return;
+    cargarIndiceEmt().then(setEmtTodas).catch(() => setEmtTodas("error"));
+  }, [buscando, emtTodas]);
+
+  // Paradas de la EMT que no son nuestras: por nombre (todas las palabras, en cualquier orden) o por número
+  const conEmt = ["todo", "emt"].includes(filtro);
+  const resultadosEmt = useMemo(() => {
+    if (!buscando || !Array.isArray(emtTodas) || !conEmt) return [];
+    const palabras = q.split(/\s+/).filter(Boolean);
+    const numero = /^\d+$/.test(q) ? Number(q) : null;
+    const ya = new Set(resultados.map((p) => p.id));
+    return emtTodas
+      .filter((p) => !ya.has(`emt-${p.id}`) && (p.id === numero || (numero === null && palabras.every((w) => p.clave.includes(w)))))
+      .sort((a, b) => (b.id === numero) - (a.id === numero) || b.clave.startsWith(q) - a.clave.startsWith(q) || a.nombre.localeCompare(b.nombre))
+      .slice(0, MAX_RESULTADOS_EMT);
+  }, [buscando, emtTodas, conEmt, q, resultados]);
   const listaRecientes = recientes
     .map((id) => porModo.find((p) => p.id === id))
     .filter((p) => p && !favoritas.includes(p.id))
@@ -226,12 +262,29 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
         />
       ) : buscando ? (
         <section className="space-y-3" aria-live="polite">
-          {resultados.length === 0 ? (
-            <p className="text-[15px] text-suave">No tenemos datos de esa parada todavía.</p>
-          ) : (
-            resultados.map((p) => (
-              <TarjetaParada key={p.id} parada={p} favorita={favoritas.includes(p.id)} nombre={nombres[p.id]} onAbrir={() => onAbrirParada(p.id)} />
-            ))
+          {resultados.map((p) => (
+            <TarjetaParada key={p.id} parada={p} favorita={favoritas.includes(p.id)} nombre={nombres[p.id]} onAbrir={() => onAbrirParada(p.id)} />
+          ))}
+          {resultadosEmt.length > 0 && <h2 className="pt-1 text-[16px] font-bold text-tinta-2">Paradas de la EMT · en directo</h2>}
+          {resultadosEmt.map((p) => {
+            const parada = paradaEmtViva(p);
+            return (
+              <TarjetaParada
+                key={parada.id}
+                parada={parada}
+                favorita={favoritas.includes(parada.id)}
+                nombre={nombres[parada.id]}
+                onAbrir={() => onAbrirParada(parada.id, parada)}
+              />
+            );
+          })}
+          {resultados.length === 0 && resultadosEmt.length === 0 && emtTodas === null && conEmt && (
+            <div className="h-[90px] animate-pulse rounded-2xl bg-linea" aria-label="Buscando" />
+          )}
+          {resultados.length === 0 && resultadosEmt.length === 0 && (emtTodas !== null || !conEmt) && (
+            <p className="text-[15px] text-suave">
+              No encontramos esa parada. Buscamos en nuestras paradas medidas y en todas las de autobús de la EMT, por nombre o por número.
+            </p>
           )}
         </section>
       ) : (
