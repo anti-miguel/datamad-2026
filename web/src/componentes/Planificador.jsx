@@ -395,6 +395,11 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
       <button onClick={onSalir} className="min-h-[44px] text-[16px] font-bold text-principal">
         ← Otras opciones
       </button>
+      {!enDirecto() && contexto && (
+        <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[14px] font-bold text-[#111]">
+          Modo ensayo: viaje a las {Math.floor(contexto.hora)}:{String(Math.round((contexto.hora % 1) * 60)).padStart(2, "0")}, sin datos en directo.
+        </p>
+      )}
       <Tarjeta sombra className="space-y-2 p-4">
         <Resumen o={o} primera={primera} datos={datos} contexto={contexto} />
         {o.tramos.some((t) => t.tipo === "viaje") && (
@@ -476,8 +481,16 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onV
         onSalir={() => setIniciada(null)}
       />
     );
+  // En el modo de ensayo (?hora=…) la hora es inventada: se dice, para que nadie crea que es la de ahora
+  const ensayo = !enDirecto() && contexto ? (
+    <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[14px] font-bold text-[#111]">
+      Modo ensayo: rutas para las {Math.floor(contexto.hora)}:{String(Math.round((contexto.hora % 1) * 60)).padStart(2, "0")} de un{" "}
+      {contexto.finde ? "fin de semana" : "laborable"}, sin datos en directo.
+    </p>
+  ) : null;
   return (
     <section className="space-y-3" aria-live="polite">
+      {ensayo}
       {estado.opciones.map((o, i) => (
         <Opcion key={i} o={o} primera={i === 0} datos={datos} contexto={contexto} onIniciar={() => setIniciada(i)} />
       ))}
