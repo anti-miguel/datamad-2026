@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { IconoFlechaAbajo, IconoCampana } from "./Iconos.jsx";
 import { DibujoVehiculo } from "./Vehiculos.jsx";
+import { rangoCorto } from "../lib/util.js";
 
 // Al aparecer, el vehículo sale del principio y avanza hasta su sitio
 function usePosicionAnimada(destino) {
@@ -72,7 +73,7 @@ export default function FranjaSeguimiento({ seg, onAbrir, onCambiarModo, bajada 
   let textoDerecho = null;
   if (seg.modo === "parada") {
     if (seg.minutos <= 1) textoDerecho = "Llegando";
-    else if (seg.v) textoDerecho = `${seg.v.desde}–${seg.v.hasta} min`;
+    else if (seg.v) textoDerecho = rangoCorto(seg.v, seg.minutos);
     // PENDIENTE: el manual no dice qué poner a la derecha si no hay ventana; se deja vacío
   } else if (seg.destino) {
     textoDerecho = `Llegas ${seg.destino.llegada}`;

@@ -14,7 +14,7 @@ import { ListaRutas, DetalleRuta } from "./pantallas/Rutas.jsx";
 import Login from "./pantallas/Login.jsx";
 import { AvisoAbono, leerAbono, guardarAbono } from "./componentes/Abono.jsx";
 import { posicionVehiculo } from "./lib/ventana.js";
-import { aMinutos, calcularLlegada, contextoActual, iconoDeRed, llegadasVivas } from "./lib/util.js";
+import { aMinutos, calcularLlegada, contextoActual, iconoDeRed, llegadasVivas, rangoCorto } from "./lib/util.js";
 import { cargarIndiceMetro, consultaDirecto, enDirecto, llegadasEmt, llegadasMetro, nombreBonito } from "./lib/emt.js";
 
 const BASE = import.meta.env.BASE_URL;
@@ -108,7 +108,7 @@ export default function App() {
   const [sesion, setSesion] = useState(leerSesion);
   const [abono, setAbono] = useState(() => leerAbono());
   // Paradas de la EMT abiertas desde «Cerca de ti» (no están en la demo) y las últimas consultadas
-  const [extra, setExtra] = useState(() => leerLista("paradas_extra"));
+  const [extra, setExtra] = useState(() => leerLista("paradas_extra").map((p) => ({ ...p, nombre: nombreBonito(p.nombre) })));
   const [recientes, setRecientes] = useState(() => leerLista("recientes"));
   // Llegadas en directo por parada: { "emt-4613": { llegadas, hora, error } }
   const [directo, setDirecto] = useState({});
@@ -312,7 +312,7 @@ export default function App() {
 
     const [primera, segunda] = llegadasSeguidas;
     let siguienteTexto = "No hay otro anunciado todavía";
-    if (segunda?.v) siguienteTexto = `El siguiente sale en ${segunda.v.desde}–${segunda.v.hasta} min`;
+    if (segunda?.v) siguienteTexto = `El siguiente sale en ${rangoCorto(segunda.v, segunda.minutos)}`;
     // PENDIENTE: el manual no define el texto si hay segunda llegada pero sin ventana; se deja vacío
     else if (segunda) siguienteTexto = "";
 

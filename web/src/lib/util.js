@@ -48,6 +48,16 @@ export function textoFranja(hora) {
   return "noche";
 }
 
+// Si la ventana es de 1 min o menos, «entre 15 y 16» no aporta: se enseña el minuto que dice la app (decidido el 26/11)
+export function ventanaEstrecha(v) {
+  return Boolean(v) && v.hasta - v.desde <= 1;
+}
+
+// «15–19 min» o, si la ventana es estrecha, el minuto de la app: «15 min»
+export function rangoCorto(v, minutos) {
+  return ventanaEstrecha(v) ? `${minutos} min` : `${v.desde}–${v.hasta} min`;
+}
+
 export function plural(n, uno, varios) {
   return n === 1 ? uno : varios;
 }

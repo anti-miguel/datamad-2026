@@ -6,7 +6,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { IconoRed, Linea, Etiqueta, Tarjeta, Volver } from "../componentes/Comunes.jsx";
 import { IconoEstrella, IconoInfo, IconoAviso, IconoCampana } from "../componentes/Iconos.jsx";
-import { NOMBRE_RED, horaTexto } from "../lib/util.js";
+import { NOMBRE_RED, horaTexto, ventanaEstrecha } from "../lib/util.js";
 import { casillas } from "../lib/ventana.js";
 import { NombreEditable } from "./Rutas.jsx";
 import { incidenciasDelTramo } from "../lib/rutas.js";
@@ -59,7 +59,13 @@ export function ParadaCargando() {
 }
 
 const ventanaTexto = (l) =>
-  l.lejos ? "Demasiado lejos para estimar" : l.v ? `Llega entre ${l.v.desde} y ${l.v.hasta} min` : "Sin datos suficientes";
+  l.lejos
+    ? "Demasiado lejos para estimar"
+    : l.v
+      ? ventanaEstrecha(l.v)
+        ? `Llega en ${l.minutos} min`
+        : `Llega entre ${l.v.desde} y ${l.v.hasta} min`
+      : "Sin datos suficientes";
 
 // Una tarjeta por línea: la siguiente llegada en grande y la de después en pequeño
 // Tramo dibujado parada a parada, desde la de subida hasta la de bajada, con las incidencias en su sitio
@@ -138,7 +144,7 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
 
         {b && (
           <p className="mt-3 rounded-lg bg-hundido px-3 py-2 text-[15px] text-tinta-2">
-            El siguiente: <span className="font-bold text-tinta">{b.v ? `entre ${b.v.desde} y ${b.v.hasta} min` : `${b.minutos} min según la app`}</span>
+            El siguiente: <span className="font-bold text-tinta">{b.v ? (ventanaEstrecha(b.v) ? `en ${b.minutos} min` : `entre ${b.v.desde} y ${b.v.hasta} min`) : `${b.minutos} min según la app`}</span>
           </p>
         )}
       </div>
@@ -226,7 +232,9 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
                     <>
                       en{" "}
                       <span className="cifra text-[20px] text-principal">
-                        {a.v.desde + parada.minutos + inc.retraso}–{a.v.hasta + parada.minutos + inc.retraso} min
+                        {ventanaEstrecha(a.v)
+                          ? `${a.minutos + parada.minutos + inc.retraso} min`
+                          : `${a.v.desde + parada.minutos + inc.retraso}–${a.v.hasta + parada.minutos + inc.retraso} min`}
                       </span>
                     </>
                   ) : (

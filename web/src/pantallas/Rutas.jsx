@@ -7,6 +7,7 @@ import {
 } from "../componentes/Iconos.jsx";
 import { calcularRuta, cadenaDeLineas, horaDeSalida, salirEn } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
+import { ventanaEstrecha } from "../lib/util.js";
 import Vagones from "../componentes/Vagones.jsx";
 
 const ICONOS = { uni: IconoUni, trabajo: IconoTrabajo, casa: IconoCasa };
@@ -339,7 +340,7 @@ function OpcionEspera({ o, elegida, recomendada, onElegir, modo }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[17px] font-bold leading-snug text-tinta">
-          {o.lejos ? "Demasiado lejos para estimar" : o.v ? `Pasa entre ${o.v.desde} y ${o.v.hasta} min` : "Sin datos suficientes"}
+          {o.lejos ? "Demasiado lejos para estimar" : o.v ? (ventanaEstrecha(o.v) ? `Pasa en ${o.minutos} min` : `Pasa entre ${o.v.desde} y ${o.v.hasta} min`) : "Sin datos suficientes"}
         </span>
         <span className="mt-0.5 block text-[14px] text-suave">
           {o.desde_parada ? `Desde ${o.desde_parada} · ` : ""}La app dice {o.minutos} min · viaje {o.aproximado ? "≈ " : ""}
