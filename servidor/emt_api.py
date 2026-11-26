@@ -241,6 +241,40 @@ def metro(andenes):
     return {"llegadas": out, "hora": int(ahora)}
 
 
+# Avisos oficiales de la EMT: su RSS público (el mismo que leía el grabador de avisos). Caché de 5 min.
+RSS_EMT = "http://feeds.emtmadrid.es:8082/"
+
+
+def _epoch_madrid(txt):
+    try:
+        return int(datetime.strptime(txt.strip(), "%d/%m/%Y %H:%M:%S").replace(tzinfo=MADRID).timestamp())
+    except ValueError:
+        return None
+
+
+def avisos_emt():
+    def pedir():
+        import html as _html
+        import xml.etree.ElementTree as ET
+        try:
+            with urllib.request.urlopen(urllib.request.Request(RSS_EMT, headers={"User-Agent": "yavoy"}), timeout=20) as r:
+                raiz = ET.fromstring(r.read())
+        except (ET.ParseError, OSError) as ex:
+            raise RuntimeError("el canal de avisos de la EMT no responde") from ex
+        limpio = lambda c: re.sub(r"^[\d.]+\s*-\s*", "", c or "").strip()
+        out = []
+        for i in raiz.find("channel").findall("item"):
+            g = lambda k: (i.findtext(k) or "").strip()
+            out.append({"titulo": g("title"), "texto": _html.unescape(re.sub(r"<[^>]+>", " ", g("description"))).strip(),
+                        "enlace": g("link"), "desde": _epoch_madrid(g("rssAfectaDesde")), "hasta": _epoch_madrid(g("rssAfectaHasta")),
+                        "causa": limpio(g("GoogleTransitCause")), "efecto": limpio(g("GoogleTransitEffect")),
+                        "lineas": sorted({c.text.strip().lstrip("0") or "0" for c in i.findall("category") if c.text and c.text.strip()},
+                                         key=lambda s: (len(s), s))})
+        out.sort(key=lambda a: a["desde"] or 0, reverse=True)
+        return {"avisos": out, "hora": int(time.time())}
+    return _cacheado(("rss",), 300, pedir)
+
+
 # Direcciones y sitios: Nominatim (OpenStreetMap). Su política pide como mucho 1 consulta por segundo,
 # un User-Agent propio y guardar las respuestas: caché de un día y un cerrojo con espera.
 NOMINATIM = ("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=es&bounded=1"
@@ -311,6 +345,8 @@ class Manejador(BaseHTTPRequestHandler):
         if not self._ip_ok():
             return self._responder(429, {"error": "demasiadas consultas, espera un minuto"})
         try:
+            if ruta == "avisos":
+                return self._responder(200, avisos_emt())
             if ruta == "buscar":
                 texto = " ".join(q.get("q", [""])[0].split())[:80]
                 if len(texto) < 3:

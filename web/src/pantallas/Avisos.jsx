@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Linea, Tarjeta } from "../componentes/Comunes.jsx";
 import { IconoGente, IconoCoche, IconoReloj, IconoAviso } from "../componentes/Iconos.jsx";
+import AvisosOficiales from "../componentes/AvisosOficiales.jsx";
 
 // Tipo de aviso según su texto: icono, color y nombre
 function tipoDe(texto) {
@@ -90,8 +91,37 @@ function TarjetaAviso({ aviso }) {
 }
 
 export default function Avisos({ avisos }) {
+  const [pestana, setPestana] = useState("viajeros");
   const [abierto, setAbierto] = useState(false);
   const [gracias, setGracias] = useState(false);
+
+  const pestanas = (
+    <div className="flex gap-2" role="tablist" aria-label="Tipo de avisos">
+      {[
+        ["viajeros", "De viajeros"],
+        ["oficiales", "Oficiales EMT"],
+      ].map(([id, texto]) => (
+        <button
+          key={id}
+          role="tab"
+          aria-selected={pestana === id}
+          onClick={() => setPestana(id)}
+          className={`boton-pegatina min-h-[48px] flex-1 rounded-xl text-[16px] font-bold ${pestana === id ? "bg-principal text-white" : "bg-tarjeta text-tinta"}`}
+        >
+          {texto}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (pestana === "oficiales")
+    return (
+      <div className="space-y-4">
+        <h1 className="titulo pt-2 text-[34px] text-tinta">Avisos</h1>
+        {pestanas}
+        <AvisosOficiales />
+      </div>
+    );
 
   return (
     <div className="-mx-4 -mt-4">
@@ -104,6 +134,7 @@ export default function Avisos({ avisos }) {
           <h1 className="titulo text-[34px] text-tinta">Avisos</h1>
           <span className="pegatina mb-1 rounded-full bg-amarillo px-3 py-1 text-[15px] font-bold">{avisos.length} cerca de ti</span>
         </div>
+        {pestanas}
         <p className="text-[16px] text-tinta-2">Lo que cuentan otros viajeros ahora mismo. Confírmalo si lo estás viendo.</p>
         {avisos.map((a) => (
           <TarjetaAviso key={a.texto} aviso={a} />

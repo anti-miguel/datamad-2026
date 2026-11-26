@@ -408,7 +408,7 @@ export default function App() {
   return (
     <div className="mx-auto min-h-dvh max-w-[430px]">
       <main className={`px-4 pt-4 ${conFranja ? "pb-[210px]" : "pb-[100px]"}`}>
-        {pantalla !== "paradas" && pantalla !== "avisos" && !sesion.invitado && <AvisoAbono abono={abono} onVer={verAbono} />}
+        {pantalla !== "paradas" && pantalla !== "avisos" && <AvisoAbono abono={abono} onVer={verAbono} />}
         <section id="pantalla-paradas" hidden={pantalla !== "paradas"}>
           <Paradas
             demo={demo}
@@ -417,7 +417,7 @@ export default function App() {
             favoritas={favoritas}
             nombres={nombres}
             usuario={sesion.nombre}
-            abono={sesion.invitado ? null : abono}
+            abono={abono}
             onCambiarAbono={cambiarAbono}
             onAbrirParada={abrirParada}
           />
