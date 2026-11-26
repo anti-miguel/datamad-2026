@@ -85,7 +85,8 @@ export function nombreBonito(nombre) {
       inicio = false;
       return sale;
     })
-    .join(" ");
+    .join(" ")
+    .replace(/^\p{Ll}/u, (c) => c.toUpperCase()); // siempre empieza en mayúscula («las Carcavas» -> «Las Carcavas»)
 }
 
 // Parada de la EMT que no está en la demo, a partir de la respuesta de /cercanas

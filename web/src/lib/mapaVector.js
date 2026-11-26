@@ -43,7 +43,7 @@ export async function crearMapa(caja, puntos, { interactivo = true } = {}) {
       [Math.min(...lons), Math.min(...lats)],
       [Math.max(...lons), Math.max(...lats)],
     ],
-    fitBoundsOptions: { padding: 36, maxZoom: 16 },
+    fitBoundsOptions: { padding: 50, maxZoom: 17 },
     attributionControl: false, // el botón «i» estorbaba: va un crédito mínimo en texto (abajo) y el completo en Info
     dragRotate: false,
     pitchWithRotate: false,
@@ -61,34 +61,42 @@ export async function crearMapa(caja, puntos, { interactivo = true } = {}) {
   credito.rel = "noreferrer";
   credito.textContent = "© OpenStreetMap · CARTO";
   caja.appendChild(credito);
-  // Botón redondo para volver a ver toda la ruta, por si te pierdes moviendo el mapa
-  const limites = [
-    [Math.min(...lons), Math.min(...lats)],
-    [Math.max(...lons), Math.max(...lats)],
-  ];
-  if (interactivo) {
-    map.addControl(
-      {
-        onAdd() {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "maplibregl-ctrl mapa-volver";
-          b.setAttribute("aria-label", "Volver a ver toda la ruta");
-          b.title = "Volver a ver toda la ruta";
-          b.innerHTML =
-            '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="#111"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
-          b.onclick = () => map.fitBounds(limites, { padding: 36, maxZoom: 16 });
-          this.el = b;
-          return b;
-        },
-        onRemove() {
-          this.el?.remove();
-        },
-      },
-      "top-right",
-    );
-  }
   await new Promise((ok) => map.once("load", ok));
   retocarEstilo(map);
   return { map, maplibregl };
 }
+
+// Límites que encierran unos puntos [[lat, lon], ...], en el orden de MapLibre
+export function limitesDe(puntos) {
+  const lons = puntos.map((p) => p[1]);
+  const lats = puntos.map((p) => p[0]);
+  return [
+    [Math.min(...lons), Math.min(...lats)],
+    [Math.max(...lons), Math.max(...lats)],
+  ];
+}
+
+// Botón redondo del mapa (como los de Google Maps): icono SVG, texto para lectores de pantalla y acción
+export function botonMapa(map, { svg, etiqueta, accion }) {
+  const control = {
+    onAdd() {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "maplibregl-ctrl mapa-volver";
+      b.setAttribute("aria-label", etiqueta);
+      b.title = etiqueta;
+      b.innerHTML = svg;
+      b.onclick = accion;
+      this.el = b;
+      return b;
+    },
+    onRemove() {
+      this.el?.remove();
+    },
+  };
+  map.addControl(control, "top-right");
+  return control;
+}
+
+export const ICONO_TU = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="#111"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+export const ICONO_TODO = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';

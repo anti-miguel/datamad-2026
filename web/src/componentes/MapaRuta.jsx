@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { colorDeLinea } from "./Comunes.jsx";
 import { enDirecto, llegadasEmt } from "../lib/emt.js";
-import { crearMapa } from "../lib/mapaVector.js";
+import { botonMapa, crearMapa, ICONO_TODO, ICONO_TU, limitesDe } from "../lib/mapaVector.js";
 
 const CADA_MS = 20000;
 const MAX_BUSES_TRAMO = 3;
@@ -25,18 +25,35 @@ export default function MapaRuta({ opcion, desde, hasta }) {
   const [estado, setEstado] = useState("Cargando el mapa…");
   const tramosBus = opcion.tramos.filter((t) => t.tipo === "viaje" && t.red === "emt");
 
-  // El mapa y el recorrido, una vez
+  // El mapa y el recorrido, una vez. Empieza enfocado en ti y en tu primera parada (por dónde tienes que ir);
+  // los tramos andando van punteados; dos botones: volver a ti y a tu parada, y ver toda la ruta.
   useEffect(() => {
     let vivo = true;
     let mapa = null;
+    let vigilancia = null;
     const tramos = opcion.tramos.filter((t) => t.tipo === "viaje" && t.camino?.length);
-    const puntos = [...tramos.flatMap((t) => t.camino)];
-    if (desde?.lat != null) puntos.push([desde.lat, desde.lon]);
-    if (hasta?.lat != null) puntos.push([hasta.lat, hasta.lon]);
-    crearMapa(caja.current, puntos)
+    const salida = desde?.lat != null ? [desde.lat, desde.lon] : tramos[0]?.camino[0];
+    const llegada = hasta?.lat != null ? [hasta.lat, hasta.lon] : tramos.at(-1)?.camino.at(-1);
+    // tramos andando: de la salida a la primera parada, entre transbordos y de la última parada al destino
+    const andando = [];
+    let desdeAqui = salida;
+    for (const t of tramos) {
+      if (desdeAqui) andando.push([desdeAqui, t.camino[0]]);
+      desdeAqui = t.camino.at(-1);
+    }
+    if (desdeAqui && llegada) andando.push([desdeAqui, llegada]);
+    const objetivo = tramos[0]?.camino[0] ?? llegada; // a dónde vas primero
+    const todos = [salida, llegada, ...tramos.flatMap((t) => t.camino)].filter(Boolean);
+    let tu = salida;
+    crearMapa(caja.current, [tu, objetivo].filter(Boolean))
       .then(({ map, maplibregl }) => {
         mapa = map;
         if (!vivo) return map.remove();
+        map.addSource("andando", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: andando.map(([a, b]) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [lonlat(a), lonlat(b)] } })) },
+        });
+        map.addLayer({ id: "andando", type: "line", source: "andando", layout: { "line-cap": "round" }, paint: { "line-color": "#111111", "line-width": 3.5, "line-dasharray": [0.1, 2] } });
         map.addSource("ruta", {
           type: "geojson",
           data: {
@@ -50,18 +67,39 @@ export default function MapaRuta({ opcion, desde, hasta }) {
         });
         map.addLayer({ id: "ruta-borde", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#111111", "line-width": 9 } });
         map.addLayer({ id: "ruta", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 5.5 } });
-        const nodos = tramos.flatMap((t) => [
-          { p: t.camino[0], texto: `Subes al ${t.linea}: ${t.desde.nombre}` },
-          { p: t.camino[t.camino.length - 1], texto: `Bajas: ${t.hasta.nombre}` },
-        ]);
-        for (const n of nodos) new maplibregl.Marker({ element: elemento("", "nodo-mapa"), title: n.texto }).setLngLat(lonlat(n.p)).addTo(map);
-        if (desde?.lat != null) new maplibregl.Marker({ element: elemento("", "nodo-mapa nodo-salida"), title: "Sales de aquí" }).setLngLat([desde.lon, desde.lat]).addTo(map);
-        if (hasta?.lat != null) new maplibregl.Marker({ element: elemento("", "nodo-mapa nodo-destino"), title: "Tu destino" }).setLngLat([hasta.lon, hasta.lat]).addTo(map);
+        // subidas con la línea que coges, bajadas en blanco
+        tramos.forEach((t, i) => {
+          const sube = elemento(`<span class="bus-mapa-linea" style="background:${colorDeLinea(t.red, t.linea)}">${t.linea}</span>`, "subida-mapa");
+          sube.title = `${i === 0 ? "Coges" : "Cambias al"} ${t.linea} en ${t.desde.nombre}`;
+          new maplibregl.Marker({ element: sube }).setLngLat(lonlat(t.camino[0])).addTo(map);
+          new maplibregl.Marker({ element: elemento("", "nodo-mapa"), title: `Bajas en ${t.hasta.nombre}` }).setLngLat(lonlat(t.camino.at(-1))).addTo(map);
+        });
+        if (llegada) new maplibregl.Marker({ element: elemento("", "nodo-mapa nodo-destino"), title: "Tu destino" }).setLngLat(lonlat(llegada)).addTo(map);
+        // tú: la personita, que se mueve contigo si saliste de «Mi ubicación»
+        const persona = new maplibregl.Marker({
+          element: elemento('<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#111" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M9 21l2-6 3 3v5M7 12l3-4 4 1 3 3M10 8l-1 5"/></svg>', "persona-mapa"),
+          title: "Tú",
+        })
+          .setLngLat(lonlat(tu))
+          .addTo(map);
+        if (desde?.nombre === "Mi ubicación" && navigator.geolocation) {
+          vigilancia = navigator.geolocation.watchPosition(
+            ({ coords }) => {
+              tu = [coords.latitude, coords.longitude];
+              persona.setLngLat(lonlat(tu));
+            },
+            () => {},
+            { enableHighAccuracy: true, maximumAge: 10000 },
+          );
+        }
+        botonMapa(map, { svg: ICONO_TU, etiqueta: "Volver a ti y a tu parada", accion: () => map.fitBounds(limitesDe([tu, objetivo].filter(Boolean)), { padding: 50, maxZoom: 17 }) });
+        botonMapa(map, { svg: ICONO_TODO, etiqueta: "Ver toda la ruta", accion: () => map.fitBounds(limitesDe(todos), { padding: 36, maxZoom: 16 }) });
         setListo({ map, maplibregl });
       })
       .catch(() => vivo && setEstado("No hemos podido cargar el mapa."));
     return () => {
       vivo = false;
+      if (vigilancia !== null) navigator.geolocation.clearWatch(vigilancia);
       mapa?.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

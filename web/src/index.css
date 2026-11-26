@@ -275,3 +275,26 @@ input:focus-visible {
 .mapa-yavoy .leaflet-control-attribution a {
   color: #4a4e6a;
 }
+
+/* Tú en el mapa de la ruta (la personita) y la línea que coges en cada subida */
+.persona-mapa {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 3px solid #111;
+  border-radius: 50%;
+  background: #ffe15a;
+  box-shadow: 0 0 0 6px rgb(35 53 245 / 0.25);
+}
+.subida-mapa .bus-mapa-linea {
+  min-width: 28px;
+  height: 22px;
+  font-size: 12px;
+}
+.mapa-yavoy .maplibregl-ctrl-top-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

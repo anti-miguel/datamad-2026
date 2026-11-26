@@ -5,9 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { fondoMapa } from "../lib/mapa.js";
-import { IconoRed, Linea, Etiqueta, Tarjeta, Volver } from "../componentes/Comunes.jsx";
+import { IconoRed, Linea, Etiqueta, Tarjeta, Volver, colorDeLinea } from "../componentes/Comunes.jsx";
 import { IconoEstrella, IconoInfo, IconoAviso, IconoCampana } from "../componentes/Iconos.jsx";
-import { NOMBRE_RED, horaTexto, ventanaEstrecha } from "../lib/util.js";
+import { NOMBRE_RED, horaTexto, ventanaEstrecha, normalizar } from "../lib/util.js";
 import { casillas } from "../lib/ventana.js";
 import { NombreEditable } from "./Rutas.jsx";
 import { incidenciasDelTramo } from "../lib/rutas.js";
@@ -62,9 +62,27 @@ function FrecuenciasMetro({ andenes, hora }) {
   );
 }
 
-function Minimapa({ lat, lon }) {
+// Minimapa de la parada: dónde está y, encima, el trozo de recorrido de cada línea que pasa por ella
+// (unas paradas antes y bastantes después, hacia donde va), para ver por dónde sigue y no solo edificios.
+// Recorridos de los horarios oficiales de la EMT y del Metro (datos/red.json); Cercanías e interurbanos aún no.
+const ANTES = 2;
+const DESPUES = 8;
+
+function clavesDeParada(parada, red) {
+  if (parada.red === "emt" && /^emt-\d+$/.test(parada.id)) return [`e${parada.id.slice(4)}`];
+  if (parada.red === "metro") {
+    if (parada.andenes?.length) return parada.andenes.map((a) => `m${a}`);
+    const nombre = normalizar(parada.nombre);
+    return [...red.paradas.values()].filter((p) => p.red === "metro" && normalizar(p.nombre) === nombre).map((p) => p.clave);
+  }
+  return [];
+}
+
+function Minimapa({ parada }) {
   const caja = useRef(null);
+  const { lat, lon } = parada;
   useEffect(() => {
+    let vivo = true;
     const mapa = L.map(caja.current, {
       center: [lat, lon],
       zoom: 17,
@@ -77,22 +95,47 @@ function Minimapa({ lat, lon }) {
       keyboard: false,
     });
     fondoMapa(mapa);
-    L.circleMarker([lat, lon], {
-      radius: 9,
-      color: "#111111",
-      weight: 3,
-      fillColor: "#FFE15A",
-      fillOpacity: 1,
-    }).addTo(mapa);
+    const punto = () =>
+      L.circleMarker([lat, lon], { radius: 9, color: "#111111", weight: 3, fillColor: "#FFE15A", fillOpacity: 1 }).addTo(mapa);
+    let marca = punto();
+    cargarRed()
+      .then((red) => {
+        if (!vivo) return;
+        const claves = new Set(clavesDeParada(parada, red));
+        if (!claves.size) return;
+        const trozos = [];
+        const vistos = new Set();
+        for (const p of red.patrones) {
+          const i = p.p.findIndex((c) => claves.has(c));
+          if (i < 0 || i === p.p.length - 1) continue;
+          const k = `${p.red}${p.linea}${p.p[i + 1]}`; // una vez por línea y sentido
+          if (vistos.has(k)) continue;
+          vistos.add(k);
+          const camino = p.p.slice(Math.max(0, i - ANTES), Math.min(p.p.length, i + DESPUES + 1)).map((c) => {
+            const q = red.paradas.get(c);
+            return [q.lat, q.lon];
+          });
+          trozos.push({ camino, color: colorDeLinea(p.red, p.linea) });
+        }
+        if (!trozos.length) return;
+        for (const t of trozos) L.polyline(t.camino, { color: "#111111", weight: 7, opacity: 0.9, interactive: false }).addTo(mapa);
+        for (const t of trozos) L.polyline(t.camino, { color: t.color, weight: 4, opacity: 1, interactive: false }).addTo(mapa);
+        marca.remove();
+        marca = punto(); // la parada, encima de las líneas
+        mapa.fitBounds(L.latLngBounds([[lat, lon], ...trozos.flatMap((t) => t.camino)]), { padding: [18, 18], maxZoom: 17 });
+      })
+      .catch(() => {});
     // Si cambia el ancho (girar el móvil), el mapa se recoloca para no dejar zonas grises
     const observador = new ResizeObserver(() => mapa.invalidateSize());
     observador.observe(caja.current);
     return () => {
+      vivo = false;
       observador.disconnect();
       mapa.remove();
     };
-  }, [lat, lon]);
-  return <div ref={caja} className="mapa-yavoy pegatina h-[150px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la parada" />;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lat, lon, parada.id]);
+  return <div ref={caja} className="mapa-yavoy pegatina h-[180px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la parada y de las líneas que pasan por ella" />;
 }
 
 // Tarjetas grises vacías mientras carga fiabilidad.json
@@ -369,7 +412,7 @@ export default function Parada({
         </div>
       </div>
 
-      {parada.lat != null && parada.lon != null && <Minimapa lat={parada.lat} lon={parada.lon} />}
+      {parada.lat != null && parada.lon != null && <Minimapa parada={parada} />}
 
       {!parada.vivo && enDirecto() && !cargando && !error && (
         <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[15px] text-[#111]">
