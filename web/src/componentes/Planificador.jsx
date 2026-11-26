@@ -5,6 +5,7 @@ import { Linea, Etiqueta, Tarjeta, IconoRed } from "./Comunes.jsx";
 import { IconoAndar, IconoPin } from "./Iconos.jsx";
 import { normalizar, calcularLlegada, ventanaEstrecha } from "../lib/util.js";
 import { cargarRed, planificar } from "../lib/planificador.js";
+import { consultar } from "../lib/consultar.js";
 import { enDirecto, llegadasEmt, paradaEmtViva } from "../lib/emt.js";
 
 const BASE = import.meta.env?.BASE_URL ?? "/";
@@ -201,8 +202,16 @@ function Opcion({ o, primera, datos, contexto, onAbrirParada }) {
             ))
           )}
         </div>
-        <span className="cifra shrink-0 text-[22px] text-principal">≈ {o.total} min</span>
+        <span className="shrink-0 text-right">
+          <span className="cifra block text-[22px] text-principal">≈ {o.total} min</span>
+          {o.margen > 0 && <span className="block text-[13px] text-suave">si se tuerce: {o.peor} min</span>}
+        </span>
       </div>
+      {primera && (
+        <p className="-mt-1 text-[13px] font-bold text-tinta-2">
+          Recomendada: la que menos se retrasa cuando las cosas van mal y la que menos cansa
+        </p>
+      )}
       <ol className="space-y-1.5">
         {o.tramos.map((t, i) =>
           t.tipo === "andar" ? (
@@ -238,18 +247,30 @@ function Opcion({ o, primera, datos, contexto, onAbrirParada }) {
   );
 }
 
+// Minutos de más que tarda una línea 1 de cada 10 veces (p90 del retraso medido), con lo que suele tocar esperar
+function margenMedido(datos, contexto) {
+  return (t) => {
+    const minutos = Math.min(39, Math.max(1, Math.round(t.cada / 2)));
+    const r = datos
+      ? consultar(datos, { red: t.red, minutos, hora: contexto?.hora ?? 12, finde: contexto?.finde ?? false, linea: t.linea, tipo: t.red === "metro" ? "estacion" : "intermedia" })
+      : null;
+    return r ? Math.max(0, r.p90) : t.red === "metro" ? 1 : 4;
+  };
+}
+
 export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada }) {
   const [estado, setEstado] = useState({ cargando: true, opciones: [] });
   useEffect(() => {
     let activo = true;
     setEstado({ cargando: true, opciones: [] });
     cargarRed()
-      .then((red) => activo && setEstado({ cargando: false, opciones: planificar(red, desde, hasta, { hora: contexto?.hora }) }))
+      .then((red) => activo && setEstado({ cargando: false, opciones: planificar(red, desde, hasta, { hora: contexto?.hora, margen: margenMedido(datos, contexto) }) }))
       .catch(() => activo && setEstado({ cargando: false, error: true, opciones: [] }));
     return () => {
       activo = false;
     };
-  }, [desde.lat, desde.lon, hasta.lat, hasta.lon]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desde.lat, desde.lon, hasta.lat, hasta.lon, Boolean(datos)]);
 
   function abrir(p) {
     onAbrirParada(`emt-${p.clave.slice(1)}`, paradaEmtViva({ id: p.clave.slice(1), nombre: p.nombre, lat: p.lat, lon: p.lon, lineas: [] }));
@@ -270,7 +291,7 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada }) {
         <Opcion key={i} o={o} primera={i === 0} datos={datos} contexto={contexto} onAbrirParada={abrir} />
       ))}
       <p className="text-[13px] text-suave">
-        Calculado con los horarios oficiales de la EMT y del Metro (laborable). Esperas y tiempos andando aproximados; el primer autobús, en directo.
+        Calculado con los horarios oficiales de la EMT y del Metro (laborable). «Si se tuerce» suma lo que tarda de más cada línea 1 de cada 10 veces, según lo que hemos medido. Se ordena por eso y por lo que andas y transbordas. Esperas y tiempos andando aproximados; el primer autobús, en directo.
       </p>
     </section>
   );

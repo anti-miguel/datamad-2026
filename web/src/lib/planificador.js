@@ -8,7 +8,8 @@ const M_POR_MIN = 75; // 4,5 km/h
 const RODEO = 1.3; // las calles no van en línea recta
 const MAX_ANDAR_M = 900; // hasta la primera parada y desde la última
 const MAX_TRANSBORDO_M = 300;
-const CASTIGO_TRANSBORDO = 3; // un transbordo cansa: se cuenta como 3 min más
+const CASTIGO_TRANSBORDO = 4; // un transbordo cansa: se cuenta como 4 min más al ordenar
+const PESO_ANDAR = 0.5; // andar cansa más que ir sentado: cada minuto andando cuenta 1,5 al ordenar
 const CELDA = 0.003; // ~300 m, para buscar paradas cercanas rápido
 
 export const minutosAndando = (m) => Math.max(1, Math.round((m * RODEO) / M_POR_MIN));
@@ -94,9 +95,11 @@ function funciona(pat, hora) {
   return !(hora >= 0.5 && hora < 6); // los diurnos de la EMT acaban hacia las 23:30-00:30
 }
 
-// Opciones para ir de A a B ({ lat, lon }), de la más rápida a la más lenta. Como mucho «cuantas».
+// Opciones para ir de A a B ({ lat, lon }), de la mejor a la peor. Como mucho «cuantas».
 // «hora» (decimal, 8.5 = 8:30) quita las líneas que no funcionan a esa hora.
-export function planificar(red, A, B, { cuantas = 5, hora = null } = {}) {
+// «margen(tramo)» da los minutos de más que tarda esa línea 1 de cada 10 veces (medido): se suma para el peor caso.
+// Se ordena por peor caso + esfuerzo (andar y transbordos), no solo por el tiempo medio: lo fiable y lo cómodo primero.
+export function planificar(red, A, B, { cuantas = 5, hora = null, margen = null } = {}) {
   const opciones = [];
   const directo = distanciaM(A, B);
   if (minutosAndando(directo) <= 25) {
@@ -159,7 +162,7 @@ export function planificar(red, A, B, { cuantas = 5, hora = null } = {}) {
           const pat1 = red.patrones[a.pi];
           if (pat1.linea === pat2.linea && pat1.red === pat2.red) continue;
           const andarT = c.parada.clave === s.clave ? 0 : c.andar;
-          const total = a.t + andarT + CASTIGO_TRANSBORDO + pat2.cada / 2 + pat2.t[j] - pat2.t[m] + d.andar;
+          const total = a.t + andarT + pat2.cada / 2 + pat2.t[j] - pat2.t[m] + d.andar;
           const firma = `${pat1.red}${pat1.linea}>${pat2.red}${pat2.linea}`;
           const prev = transbordos.get(firma);
           if (!prev || total < prev.total) transbordos.set(firma, { total, a, andarT, pj, m, j, d, c });
@@ -170,8 +173,7 @@ export function planificar(red, A, B, { cuantas = 5, hora = null } = {}) {
   for (const x of transbordos.values()) {
     const o = [...origen.values()].find((v) => v.parada.clave === red.patrones[x.a.pi].p[x.a.i]);
     opciones.push({
-      total: Math.round(x.total - CASTIGO_TRANSBORDO),
-      orden: x.total,
+      total: Math.round(x.total),
       transbordos: 1,
       tramos: [
         { tipo: "andar", minutos: o?.andar ?? 1, hasta: red.paradas.get(red.patrones[x.a.pi].p[x.a.i]).nombre },
@@ -183,10 +185,17 @@ export function planificar(red, A, B, { cuantas = 5, hora = null } = {}) {
     });
   }
 
-  // Las mejores, sin repetir la misma combinación de líneas; los transbordos solo si ahorran tiempo de verdad
-  const mejorDirecto = Math.min(...opciones.filter((o) => o.transbordos === 0).map((o) => o.total), Infinity);
+  // Peor caso (tiempo + margen medido de cada línea) y esfuerzo (andar y transbordos)
+  for (const o of opciones) {
+    const andado = o.tramos.filter((t) => t.tipo === "andar").reduce((s, t) => s + t.minutos, 0);
+    o.margen = Math.round(o.tramos.filter((t) => t.tipo === "viaje").reduce((s, t) => s + (margen ? margen(t) : 0), 0));
+    o.peor = o.total + o.margen;
+    o.andado = andado;
+    o.coste = o.peor + PESO_ANDAR * andado + CASTIGO_TRANSBORDO * o.transbordos;
+  }
+  const mejor = Math.min(...opciones.map((o) => o.coste));
   return opciones
-    .filter((o) => o.transbordos === 0 || o.total + 5 < mejorDirecto)
-    .sort((a, b) => (a.orden ?? a.total) - (b.orden ?? b.total))
+    .filter((o) => o.coste <= mejor + 25)
+    .sort((a, b) => a.coste - b.coste)
     .slice(0, cuantas);
 }
