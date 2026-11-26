@@ -68,7 +68,7 @@ function FrecuenciasMetro({ andenes, hora }) {
 // Recorridos de los horarios oficiales de la EMT y del Metro (datos/red.json); Cercanías e interurbanos aún no.
 const ANTES = 0; // solo hacia donde va: el tramo de llegada duplicaba rayas
 const DESPUES = 3;
-const ZOOM_PARADA = 18; // cerca: se ve en qué acera está la parada y hacia dónde va
+const ZOOM_PARADA = 17; // cerca: se ve en qué acera está la parada y hacia dónde va
 
 // Rumbo en grados (0 = norte) de a hacia b, para girar la flecha del sentido
 function rumbo([la1, lo1], [la2, lo2]) {
@@ -84,6 +84,12 @@ function clavesDeParada(parada, red) {
     if (parada.andenes?.length) return parada.andenes.map((a) => `m${a}`);
     const nombre = normalizar(parada.nombre);
     return [...red.paradas.values()].filter((p) => p.red === "metro" && normalizar(p.nombre) === nombre).map((p) => p.clave);
+  }
+  if (parada.red === "interurbano" && parada.codigo) return [`i${parada.codigo}`];
+  if (parada.red === "renfe") {
+    // la más cercana de Cercanías con ese nombre (las estaciones de Renfe se llaman «Vicálvaro», «Madrid-Atocha»…)
+    const nombre = normalizar(parada.nombre);
+    return [...red.paradas.values()].filter((p) => p.red === "renfe" && normalizar(p.nombre).includes(nombre)).map((p) => p.clave).slice(0, 2);
   }
   return [];
 }
@@ -124,7 +130,7 @@ function Minimapa({ parada }) {
           const aqui = red.paradas.get(p.p[i]);
           const siguiente = red.paradas.get(p.p[i + 1]);
           // por la calle (trazado real) si lo hay; si no, en recto de parada a parada
-          const porCalle = recorte(decodificar(formas[pi]), [aqui.lat, aqui.lon], null, 220, [siguiente.lat, siguiente.lon]);
+          const porCalle = recorte(decodificar(formas[pi]), [aqui.lat, aqui.lon], null, 400, [siguiente.lat, siguiente.lon]);
           const camino =
             porCalle ??
             p.p.slice(Math.max(0, i - ANTES), Math.min(p.p.length, i + DESPUES + 1)).map((c) => {
@@ -189,7 +195,7 @@ const ventanaTexto = (l) =>
       ? ventanaEstrecha(l.v)
         ? `Llega en ${l.minutos} min`
         : `Llega entre ${l.v.desde} y ${l.v.hasta} min`
-      : "Sin datos suficientes";
+      : `Llega en ${l.minutos} min`; // sin medida: lo que dice la fuente, tal cual
 
 // Una tarjeta por línea: la siguiente llegada en grande y la de después en pequeño
 // Tramo dibujado parada a parada, desde la de subida hasta la de bajada, con las incidencias en su sitio
@@ -227,8 +233,38 @@ function TramoDibujado({ recorrido, fin, incidencias, subida }) {
   );
 }
 
-function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado, fuente = "la app" }) {
-  const [a, b] = llegadas;
+// El recorrido del sentido que lleva a ese destino (si no se reconoce, el primero)
+function recorridoHacia(lista, destino) {
+  if (!lista?.length) return undefined;
+  const d = normalizar(destino ?? "");
+  return (
+    lista.find((r) => {
+      const fin = normalizar(r[r.length - 1].nombre);
+      return d && (fin.includes(d) || d.includes(fin));
+    }) ?? lista[0]
+  );
+}
+
+// Metro: una tarjeta por línea con botones para cambiar de sentido
+function TarjetaSentidos({ llegadas, recorridos, recorridoFijo, ...resto }) {
+  const destinos = [...new Set(llegadas.map((l) => l.destino))];
+  const [elegido, setElegido] = useState(destinos[0]);
+  const actual = destinos.includes(elegido) ? elegido : destinos[0];
+  return (
+    <TarjetaLinea
+      {...resto}
+      llegadas={llegadas.filter((l) => l.destino === actual)}
+      recorrido={recorridoFijo ?? recorridoHacia(recorridos, actual)}
+      sentidos={[...destinos].sort((a, b) => a.localeCompare(b, "es"))}
+      sentido={actual}
+      onSentido={setElegido}
+    />
+  );
+}
+
+function TarjetaLinea({ linea, llegadas, red, primera, sentidos, sentido, onSentido, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado, fuente = "la app" }) {
+  // Los minutos del Metro son fiables: se enseña su número, sin ventana ni etiqueta
+  const [a, b] = red === "metro" ? llegadas.map((x) => x && { ...x, v: null, r: null, lejos: false }) : llegadas;
   const [destinoSel, setDestinoSel] = useState(bajada?.linea === linea ? bajada.codigo : "");
   const parada = recorrido?.find((p) => p.codigo === destinoSel);
   const avisando = bajada?.linea === linea && bajada.codigo === destinoSel;
@@ -244,7 +280,11 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <Linea linea={linea} red={red} grande />
-            <span className="truncate text-[17px] text-tinta">→ {a.destino}</span>
+            {sentidos?.length > 1 ? (
+              <span className="text-[15px] text-suave">Elige sentido</span>
+            ) : (
+              <span className="truncate text-[17px] text-tinta">→ {a.destino}</span>
+            )}
           </div>
           <button
             onClick={onInfo}
@@ -255,13 +295,30 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
           </button>
         </div>
 
+        {sentidos?.length > 1 && (
+          <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label={`Sentido del ${linea}`}>
+            {sentidos.map((d) => (
+              <button
+                key={d}
+                role="radio"
+                aria-checked={sentido === d}
+                onClick={() => onSentido(d)}
+                className={`boton-pegatina min-h-[40px] rounded-full px-3 text-[15px] ${sentido === d ? "bg-principal font-bold text-white" : "bg-tarjeta"}`}
+              >
+                → {d}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Si abajo ya sale el minuto exacto, no se repite */}
-        {!(a.v && ventanaEstrecha(a.v)) && (
+        {(a.lejos || (a.v && !ventanaEstrecha(a.v))) && (
           <p className="mt-3 text-[15px] text-suave">
             {fuente === "la app" ? "La app oficial" : fuente.charAt(0).toUpperCase() + fuente.slice(1)} dice {a.minutos} min
           </p>
         )}
-        <p className={`cifra tabular-nums ${a.v && ventanaEstrecha(a.v) ? "mt-3" : "mt-1"} ${primera ? "text-[32px]" : "text-[26px]"}`}>{ventanaTexto(a)}</p>
+        <p className={`cifra tabular-nums ${a.lejos || (a.v && !ventanaEstrecha(a.v)) ? "mt-1" : "mt-3"} ${primera ? "text-[32px]" : "text-[26px]"}`}>{ventanaTexto(a)}</p>
+        {!a.v && !a.lejos && <p className="mt-1 text-[14px] text-suave">Según {fuente === "la app" ? "la app oficial" : fuente}</p>}
 
         {a.v && (
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -272,7 +329,7 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
 
         {b && (
           <p className="mt-3 rounded-lg bg-hundido px-3 py-2 text-[15px] text-tinta-2">
-            El siguiente: <span className="font-bold text-tinta">{b.v ? (ventanaEstrecha(b.v) ? `en ${b.minutos} min` : `entre ${b.v.desde} y ${b.v.hasta} min`) : `${b.minutos} min según ${fuente}`}</span>
+            El siguiente: <span className="font-bold text-tinta">{b.v ? (ventanaEstrecha(b.v) ? `en ${b.minutos} min` : `entre ${b.v.desde} y ${b.v.hasta} min`) : red === "metro" ? `en ${b.minutos} min` : `${b.minutos} min según ${fuente}`}</span>
           </p>
         )}
       </div>
@@ -414,12 +471,12 @@ export default function Parada({
         const out = {};
         for (const p of red.patrones) {
           const i = p.p.findIndex((c) => claves.has(c));
-          if (i < 0 || i === p.p.length - 1 || out[p.linea]) continue;
-          out[p.linea] = p.p.slice(i + 1).map((c, k) => ({
+          if (i < 0 || i === p.p.length - 1) continue;
+          (out[p.linea] ??= []).push(p.p.slice(i + 1).map((c, k) => ({
             codigo: c.slice(1),
             nombre: red.paradas.get(c).nombre,
             minutos: Math.max(1, Math.round(p.t[i + 1 + k] - p.t[i])),
-          }));
+          })));
         }
         if (activo) setRecorridosVivos(out);
       })
@@ -439,6 +496,8 @@ export default function Parada({
       if (g) g.llegadas.push(l);
       else porLinea.push({ linea: l.linea, llegadas: [l] });
     });
+  // Metro: orden fijo por número de línea, para que las tarjetas no salten cada 15 s mientras eliges sentido
+  if (parada.red === "metro") porLinea.sort((x, y) => x.linea.localeCompare(y.linea, "es", { numeric: true }));
 
   return (
     <div className="space-y-4">
@@ -493,14 +552,15 @@ export default function Parada({
         <ParadaCargando />
       ) : (
         <>
-          {porLinea.map((g, i) => (
-            <TarjetaLinea
+          {porLinea.map((g, i) => (parada.red === "metro" ? (
+            <TarjetaSentidos
               key={g.linea}
               linea={g.linea}
               llegadas={g.llegadas}
               red={parada.red}
               primera={i === 0}
-              recorrido={parada.recorridos?.[g.linea] ?? recorridosVivos[g.linea]}
+              recorridos={recorridosVivos[g.linea]}
+              recorridoFijo={parada.recorridos?.[g.linea]}
               avisosLinea={avisos.filter((a) => a.linea === g.linea)}
               bajada={bajada}
               onBajada={onBajada}
@@ -508,9 +568,26 @@ export default function Parada({
               incidencias={incidencias}
               subida={parada.nombre}
               aproximado={parada.recorrido_aproximado}
-              fuente={parada.vivo ? (parada.red === "metro" ? "el Metro" : "la EMT") : "la app"}
+              fuente={parada.vivo ? "el Metro" : "la app"}
             />
-          ))}
+          ) : (
+            <TarjetaLinea
+              key={g.linea}
+              linea={g.linea}
+              llegadas={g.llegadas}
+              red={parada.red}
+              primera={i === 0}
+              recorrido={parada.recorridos?.[g.linea] ?? recorridoHacia(recorridosVivos[g.linea], g.llegadas[0]?.destino)}
+              avisosLinea={avisos.filter((a) => a.linea === g.linea)}
+              bajada={bajada}
+              onBajada={onBajada}
+              onInfo={() => onInfoLinea(g.linea)}
+              incidencias={incidencias}
+              subida={parada.nombre}
+              aproximado={parada.recorrido_aproximado}
+              fuente={parada.vivo ? ({ metro: "el Metro", interurbano: "el Consorcio" }[parada.red] ?? "la EMT") : "la app"}
+            />
+          )))}
           {porLinea.length === 0 && parada.red === "metro" && parada.andenes && <FrecuenciasMetro andenes={parada.andenes} hora={contexto.hora} />}
           {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && (
             <Tarjeta className="p-4">
@@ -529,8 +606,8 @@ export default function Parada({
             {parada.vivo
               ? parada.red === "metro" && parada.sinDirecto
                 ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial del Metro · Fuente: Consorcio Regional de Transportes de Madrid`
-                : parada.red === "metro"
-                ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Metro, se actualizan cada 15 s · ventanas medidas · Fuente: Consorcio Regional de Transportes de Madrid`
+                : parada.red === "metro" || parada.red === "interurbano"
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Consorcio, se actualizan cada 15 s${parada.red === "metro" ? "" : " · ventanas medidas"} · Fuente: Consorcio Regional de Transportes de Madrid`
                 : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 15 s · ventanas medidas · Powered by EMT de Madrid`
               : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas`}
           </p>

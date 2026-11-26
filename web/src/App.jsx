@@ -256,7 +256,10 @@ export default function App() {
         ? llegadasEmt(c.numero)
         : Promise.all([llegadasMetro(c.andenes), cargarIndiceMetro()]).then(([d, ix]) => ({
             ...d,
-            llegadas: d.llegadas.map((l) => ({ ...l, destino: ix.nombres[l.destino] ? nombreBonito(ix.nombres[l.destino]) : l.destino })),
+            llegadas: d.llegadas.map((l) => ({
+              ...l,
+              destino: ix.nombres[l.destino] ? nombreBonito(ix.nombres[l.destino]) : nombreBonito((l.destino_nombre || l.destino).toLowerCase().replace(/(^|[\s-])\p{L}/gu, (c) => c.toUpperCase())),
+            })),
           }));
     const consultar = () =>
       lista.forEach(([id, c]) =>

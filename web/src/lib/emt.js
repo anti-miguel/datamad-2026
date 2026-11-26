@@ -53,6 +53,8 @@ export function consultaDirecto(p) {
   if (!p) return null;
   if (p.red === "emt" && numeroEmt(p.id) && /^\d+$/.test(numeroEmt(p.id))) return { tipo: "emt", numero: numeroEmt(p.id) };
   if (p.red === "metro" && p.andenes?.length) return { tipo: "metro", andenes: p.andenes };
+  // interurbanos: el mismo servicio de tiempos del Consorcio, con el código de la parada (8_09208)
+  if (p.red === "interurbano" && /^8_\d+$/.test(p.codigo ?? "")) return { tipo: "metro", andenes: [p.codigo] };
   return null;
 }
 export const cercanasEmt = (lat, lon) => pedir(`cercanas?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`);

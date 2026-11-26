@@ -29,6 +29,9 @@ export function cargarRed() {
   return cargando;
 }
 
+// Prefijo de las claves de red.json: e = EMT, m = Metro, i = interurbano (bus verde), r = Cercanías
+const RED_DE_PREFIJO = { e: "emt", m: "metro", i: "interurbano", r: "renfe" };
+
 function celda(lat, lon) {
   return `${Math.floor(lat / CELDA)}|${Math.floor(lon / CELDA)}`;
 }
@@ -37,7 +40,7 @@ function prepararRed(d) {
   const paradas = new Map();
   const rejilla = new Map();
   for (const [clave, [nombre, lat, lon]] of Object.entries(d.paradas)) {
-    const p = { clave, nombre: nombreBonito(nombre), lat, lon, red: clave[0] === "m" ? "metro" : "emt" };
+    const p = { clave, nombre: nombreBonito(nombre), lat, lon, red: RED_DE_PREFIJO[clave[0]] ?? "emt" };
     paradas.set(clave, p);
     const c = celda(lat, lon);
     if (!rejilla.has(c)) rejilla.set(c, []);
@@ -100,6 +103,7 @@ function funciona(pat, hora) {
   const noche = hora >= 23.5 || hora < 6;
   if (/^N\d/.test(pat.linea)) return noche;
   if (pat.red === "metro") return !(hora >= 1.5 && hora < 6);
+  if (pat.red === "renfe") return !(hora >= 0.25 && hora < 5.5); // Cercanías: de ~5:30 a ~0:15
   return !(hora >= 0.5 && hora < 6); // los diurnos de la EMT acaban hacia las 23:30-00:30
 }
 
