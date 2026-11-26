@@ -13,6 +13,30 @@ const CADA_MS = 20000;
 const MAX_BUSES_TRAMO = 3;
 const lonlat = ([lat, lon]) => [lon, lat];
 
+// El punto del trazado más cercano a p ([lat, lon]): la parada real suele estar en la acera, no encima de la raya
+function sobreLinea(p, linea) {
+  const k = Math.cos((p[0] * Math.PI) / 180); // grados de longitud a la escala de los de latitud
+  let mejor = p;
+  let dmin = Infinity;
+  for (let i = 0; i < linea.length - 1; i++) {
+    const [ay, ax] = linea[i];
+    const [by, bx] = linea[i + 1];
+    const dx = (bx - ax) * k;
+    const dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, (((p[1] - ax) * k) * dx + (p[0] - ay) * dy) / l2)) : 0;
+    const q = [ay + t * dy, ax + (t * dx) / k];
+    const d = ((q[1] - p[1]) * k) ** 2 + (q[0] - p[0]) ** 2;
+    if (d < dmin) {
+      dmin = d;
+      mejor = q;
+    }
+  }
+  // El trazado es el de esa misma línea: se pega siempre salvo que esté lejísimos (~400 m, trazado equivocado).
+  // Las estaciones de Metro tienen la coordenada del centro de la estación, a veces a 100 m de la vía.
+  return dmin < 1.3e-5 ? mejor : p;
+}
+
 function elemento(html, clase = "") {
   const el = document.createElement("div");
   el.className = clase;
@@ -70,11 +94,34 @@ export default function MapaRuta({ opcion, desde, hasta, vivo = true }) {
         });
         map.addLayer({ id: "ruta-borde", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#111111", "line-width": 9 } });
         map.addLayer({ id: "ruta", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 5.5 } });
+        // Las paradas por las que pasas sin bajarte, como puntitos blancos sobre la línea (al estilo de Google Maps)
+        map.addSource("paso", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: tramos.flatMap((t) => {
+              const linea = caminoDe(t);
+              return t.camino.slice(1, -1).map((p) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: lonlat(sobreLinea(p, linea)) } }));
+            }),
+          },
+        });
+        map.addLayer({
+          id: "paso",
+          type: "circle",
+          source: "paso",
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5],
+            "circle-color": "#FFFFFF",
+            "circle-stroke-color": "#111111",
+            "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 11, 1.2, 15, 2],
+          },
+        });
         // subidas con la línea que coges, bajadas en blanco
         tramos.forEach((t, i) => {
           const sube = elemento(`<span class="bus-mapa-linea" style="background:${colorDeLinea(t.red, t.linea)}">${t.linea}</span>`, "subida-mapa");
           sube.title = `${i === 0 ? "Coges" : "Cambias al"} ${t.linea} en ${t.desde.nombre}`;
-          new maplibregl.Marker({ element: sube }).setLngLat(lonlat(t.camino[0])).addTo(map);
+          // encima del punto de subida (no tapada por la personita cuando ya estás en la parada)
+          new maplibregl.Marker({ element: sube, anchor: "bottom", offset: [0, -4] }).setLngLat(lonlat(t.camino[0])).addTo(map);
           new maplibregl.Marker({ element: elemento("", "nodo-mapa"), title: `Bajas en ${t.hasta.nombre}` }).setLngLat(lonlat(t.camino.at(-1))).addTo(map);
         });
         if (llegada) new maplibregl.Marker({ element: elemento("", "nodo-mapa nodo-destino"), title: "Tu destino" }).setLngLat(lonlat(llegada)).addTo(map);

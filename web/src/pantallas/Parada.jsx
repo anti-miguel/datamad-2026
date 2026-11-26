@@ -12,12 +12,12 @@ import { casillas } from "../lib/ventana.js";
 import { NombreEditable } from "./Rutas.jsx";
 import { incidenciasDelTramo } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
-import { distanciaM, enDirecto } from "../lib/emt.js";
+import { enDirecto } from "../lib/emt.js";
 import { cargarRed } from "../lib/planificador.js";
 import { cargarFormas, decodificar, metrosEntre, puntoA, recorte } from "../lib/formas.js";
 
 // Sin tiempo real (Cercanías, o el Metro si el Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
-function FrecuenciasHorario({ claves: lista, red: modo, hora }) {
+function FrecuenciasHorario({ claves: lista, red: modo, hora, ocultas = [] }) {
   const [lineas, setLineas] = useState(null);
   useEffect(() => {
     let activo = true;
@@ -57,7 +57,7 @@ function FrecuenciasHorario({ claves: lista, red: modo, hora }) {
         {metro ? "Ahora no tenemos los minutos del Metro en directo." : "Cercanías no da los minutos en directo."} Según el horario oficial:
       </p>
       <ul className="space-y-2">
-        {lineas.map((l) => (
+        {lineas.filter((l) => !ocultas.includes(l.linea)).map((l) => (
           <li key={`${l.linea}${l.destino}`} className="flex items-center gap-3">
             <Linea linea={l.linea} red={modo} grande />
             <span className="text-[16px] text-tinta">
@@ -149,9 +149,6 @@ function Minimapa({ parada, ocultas = [] }) {
       .then(([red, formas]) => {
         if (!vivo) return;
         const claves = new Set(clavesDeParada(parada, red));
-        if (["metro", "renfe"].includes(parada.red))
-          for (const q of red.paradas.values())
-            if ((q.red === "metro" || q.red === "renfe") && q.red !== parada.red && distanciaM(q, parada) < 250) claves.add(q.clave);
         if (!claves.size) return;
         const trozos = [];
         const vistos = new Set();
@@ -662,9 +659,9 @@ export default function Parada({
             />
           )))}
           {porLinea.length === 0 && parada.red === "metro" && parada.andenes && (
-            <FrecuenciasHorario claves={parada.andenes.map((a) => `m${a}`)} red="metro" hora={contexto.hora} />
+            <FrecuenciasHorario claves={parada.andenes.map((a) => `m${a}`)} red="metro" hora={contexto.hora} ocultas={ocultas} />
           )}
-          {porLinea.length === 0 && parada.red === "renfe" && parada.claves && <FrecuenciasHorario claves={parada.claves} red="renfe" hora={contexto.hora} />}
+          {porLinea.length === 0 && parada.red === "renfe" && parada.claves && <FrecuenciasHorario claves={parada.claves} red="renfe" hora={contexto.hora} ocultas={ocultas} />}
           {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && !(parada.red === "renfe" && parada.claves) && (
             <Tarjeta className="p-4">
               <p className="text-[16px] text-tinta">
