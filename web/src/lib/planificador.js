@@ -75,6 +75,7 @@ function tramoViaje(red, pi, i, j) {
   const pat = red.patrones[pi];
   return {
     tipo: "viaje",
+    pi, // índice del recorrido, para el trazado por las calles (formas.json)
     red: pat.red,
     linea: pat.linea,
     destino: pat.destino,

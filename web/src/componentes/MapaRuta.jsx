@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { colorDeLinea } from "./Comunes.jsx";
 import { enDirecto, llegadasEmt } from "../lib/emt.js";
 import { botonMapa, crearMapa, ICONO_TODO, ICONO_TU, limitesDe } from "../lib/mapaVector.js";
+import { cargarFormas, decodificar, recorte } from "../lib/formas.js";
 
 const CADA_MS = 20000;
 const MAX_BUSES_TRAMO = 3;
@@ -45,8 +46,10 @@ export default function MapaRuta({ opcion, desde, hasta }) {
     const objetivo = tramos[0]?.camino[0] ?? llegada; // a dónde vas primero
     const todos = [salida, llegada, ...tramos.flatMap((t) => t.camino)].filter(Boolean);
     let tu = salida;
-    crearMapa(caja.current, [tu, objetivo].filter(Boolean))
-      .then(({ map, maplibregl }) => {
+    Promise.all([crearMapa(caja.current, [tu, objetivo].filter(Boolean)), cargarFormas().catch(() => [])])
+      .then(([{ map, maplibregl }, formas]) => {
+        // cada tramo por las calles si hay trazado; si no, en recto de parada a parada
+        const caminoDe = (t) => (t.pi != null && recorte(decodificar(formas[t.pi]), t.camino[0], t.camino.at(-1))) || t.camino;
         mapa = map;
         if (!vivo) return map.remove();
         map.addSource("andando", {
@@ -61,7 +64,7 @@ export default function MapaRuta({ opcion, desde, hasta }) {
             features: tramos.map((t) => ({
               type: "Feature",
               properties: { color: colorDeLinea(t.red, t.linea) },
-              geometry: { type: "LineString", coordinates: t.camino.map(lonlat) },
+              geometry: { type: "LineString", coordinates: caminoDe(t).map(lonlat) },
             })),
           },
         });

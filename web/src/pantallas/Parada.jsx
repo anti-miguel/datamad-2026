@@ -14,6 +14,7 @@ import { incidenciasDelTramo } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
 import { enDirecto } from "../lib/emt.js";
 import { cargarRed } from "../lib/planificador.js";
+import { cargarFormas, decodificar, metrosEntre, puntoA, recorte } from "../lib/formas.js";
 
 // Metro sin tiempo real (el servicio del Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
 function FrecuenciasMetro({ andenes, hora }) {
@@ -107,45 +108,49 @@ function Minimapa({ parada }) {
     const punto = () =>
       L.circleMarker([lat, lon], { radius: 9, color: "#111111", weight: 3, fillColor: "#FFE15A", fillOpacity: 1 }).addTo(mapa);
     let marca = punto();
-    cargarRed()
-      .then((red) => {
+    Promise.all([cargarRed(), cargarFormas().catch(() => [])])
+      .then(([red, formas]) => {
         if (!vivo) return;
         const claves = new Set(clavesDeParada(parada, red));
         if (!claves.size) return;
         const trozos = [];
         const vistos = new Set();
-        for (const p of red.patrones) {
+        red.patrones.forEach((p, pi) => {
           const i = p.p.findIndex((c) => claves.has(c));
-          if (i < 0 || i === p.p.length - 1) continue;
+          if (i < 0 || i === p.p.length - 1) return;
           const k = `${p.red}${p.linea}${p.p[i + 1]}`; // una vez por línea y sentido
-          if (vistos.has(k)) continue;
+          if (vistos.has(k)) return;
           vistos.add(k);
-          const camino = p.p.slice(Math.max(0, i - ANTES), Math.min(p.p.length, i + DESPUES + 1)).map((c) => {
-            const q = red.paradas.get(c);
-            return [q.lat, q.lon];
-          });
           const aqui = red.paradas.get(p.p[i]);
           const siguiente = red.paradas.get(p.p[i + 1]);
-          trozos.push({ camino, color: colorDeLinea(p.red, p.linea), desde: [aqui.lat, aqui.lon], hacia: [siguiente.lat, siguiente.lon] });
-        }
+          // por la calle (trazado real) si lo hay; si no, en recto de parada a parada
+          const porCalle = recorte(decodificar(formas[pi]), [aqui.lat, aqui.lon], null, 220, [siguiente.lat, siguiente.lon]);
+          const camino =
+            porCalle ??
+            p.p.slice(Math.max(0, i - ANTES), Math.min(p.p.length, i + DESPUES + 1)).map((c) => {
+              const q = red.paradas.get(c);
+              return [q.lat, q.lon];
+            });
+          trozos.push({ camino, porCalle: Boolean(porCalle), color: colorDeLinea(p.red, p.linea), desde: [aqui.lat, aqui.lon], hacia: [siguiente.lat, siguiente.lon] });
+        });
         if (!trozos.length) return;
         for (const t of trozos) L.polyline(t.camino, { color: "#111111", weight: 5.5, opacity: 0.85, interactive: false }).addTo(mapa);
         for (const t of trozos) L.polyline(t.camino, { color: t.color, weight: 3, opacity: 1, interactive: false }).addTo(mapa);
         // flecha del sentido: un poco después de la parada, girada hacia la siguiente
         const direcciones = new Set(); // una flecha por dirección, aunque pasen varias líneas
         for (const t of trozos) {
-          const sector = Math.round(rumbo(t.desde, t.hacia) / 30);
+          // a unos 30 m de la parada sobre su camino (cerca con zoom 18), girada hacia donde va
+          const enCalle = t.porCalle ? metrosEntre(t.camino[0], t.camino[1]) : 0; // el tramito de la parada a la calle
+          const sitio = puntoA(t.camino, enCalle + 25) ?? { punto: t.desde, rumbo: rumbo(t.desde, t.hacia) };
+          const sector = Math.round(sitio.rumbo / 30);
           if (direcciones.has(sector)) continue;
           direcciones.add(sector);
-          // a unos 30 m de la parada (o a un tercio, si la siguiente está muy cerca), para que se vea con el zoom cercano
-          const metros = Math.hypot((t.hacia[0] - t.desde[0]) * 111000, (t.hacia[1] - t.desde[1]) * 85000) || 1;
-          const f = Math.min(0.35, 30 / metros); // a ~30 m, que con zoom 18 cae cerca de la parada
-          const pos = [t.desde[0] + (t.hacia[0] - t.desde[0]) * f, t.desde[1] + (t.hacia[1] - t.desde[1]) * f];
+          const pos = sitio.punto;
           const icono = L.divIcon({
             className: "",
             iconSize: [22, 22],
             iconAnchor: [11, 11],
-            html: `<span class="flecha-sentido" style="transform:rotate(${rumbo(t.desde, t.hacia)}deg);background:${t.color}">↑</span>`,
+            html: `<span class="flecha-sentido" style="transform:rotate(${sitio.rumbo}deg);background:${t.color}">↑</span>`,
           });
           L.marker(pos, { icon: icono, interactive: false, keyboard: false }).addTo(mapa);
         }
