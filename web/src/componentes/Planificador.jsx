@@ -3,7 +3,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Linea, Etiqueta, Tarjeta, IconoRed, colorDeLinea } from "./Comunes.jsx";
 import { Paso, Hito } from "./Pasos.jsx";
-import { IconoAndar, IconoPin, IconoTransbordo, IconoCampana } from "./Iconos.jsx";
+import { IconoAndar, IconoPin, IconoTransbordo, IconoCampana, IconoReloj } from "./Iconos.jsx";
+import Vagones from "./Vagones.jsx";
 import { normalizar, calcularLlegada, ventanaEstrecha } from "../lib/util.js";
 import { cargarRed, planificar } from "../lib/planificador.js";
 import { consultar } from "../lib/consultar.js";
@@ -246,8 +247,26 @@ function EsperaTramo({ t, llegasEn, datos, contexto }) {
 }
 
 // Pasos de una opción, con el mismo dibujo que las rutas de la demo: hitos, tramos de color y tramos andando punteados
+function leerVagones() {
+  try {
+    return JSON.parse(localStorage.getItem("vagones")) ?? {};
+  } catch {
+    return {};
+  }
+}
+
 function PasosRuta({ o, desde, hasta, datos, contexto, onAbrirParada }) {
   const [avisos, setAvisos] = useState({});
+  const [vagones, setVagones] = useState(leerVagones);
+  function cambiarVagon(clave, v) {
+    const nuevos = { ...vagones, [clave]: v };
+    setVagones(nuevos);
+    try {
+      localStorage.setItem("vagones", JSON.stringify(nuevos));
+    } catch {
+      // sin almacenamiento dura hasta recargar
+    }
+  }
   const filas = [];
   let reloj = 0; // minutos hasta llegar a cada parada (andando, esperando y viajando), para coger el autobús que da tiempo
   let anterior = null; // último tramo en vehículo, para el transbordo
@@ -304,6 +323,20 @@ function PasosRuta({ o, desde, hasta, datos, contexto, onAbrirParada }) {
               <p>{t.entreMedias.join(" · ")}</p>
             </details>
           )}
+          {t.red === "metro" &&
+            (() => {
+              const siguiente = o.tramos.slice(i + 1).find((x) => x.tipo === "viaje");
+              const clave = `plan-${t.linea}-${t.hasta.clave}`;
+              return (
+                <Vagones
+                  total={6}
+                  numeros={vagones[clave] ?? []}
+                  motivo={siguiente ? `para hacer el transbordo al ${siguiente.linea} en ${t.hasta.nombre}` : `para salir antes en ${t.hasta.nombre}`}
+                  color={color}
+                  onCambiar={(n) => cambiarVagon(clave, n)}
+                />
+              );
+            })()}
           {t.red === "emt" && (
             <button onClick={() => onAbrirParada(t.desde)} className="min-h-[36px] text-[14px] font-bold text-principal underline underline-offset-2">
               Ver la parada {t.desde.nombre}
@@ -385,11 +418,47 @@ function Opcion({ o, primera, datos, contexto, onIniciar }) {
 }
 
 // Viaje iniciado: solo esta ruta, con el mapa en directo (interruptor, apagado por defecto) y los pasos
-function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSalir }) {
+// Mismo esquema que el detalle de las rutas de Alex (pantallas/Rutas.jsx → DetalleRuta): «Quiero llegar antes de las…»,
+// «Si sales ahora…», «Lo más seguro / Voy con prisa», y en los pasos, vagones y aviso antes de bajar.
+function horaMasMinutos(base, minutos) {
+  const m = Math.round(base * 60 + minutos);
+  return `${Math.floor(m / 60) % 24}:${String(((m % 60) + 60) % 60).padStart(2, "0")}`;
+}
+
+function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSalir, onGuardar, guardada }) {
   const [mapa, setMapa] = useState(false);
+  const [modo, setModo] = useState("segura");
+  const [llegar, setLlegar] = useState(() => horaMasMinutos(contexto?.hora ?? 9, o.peor + 15));
+  const [primerBus, setPrimerBus] = useState(null); // minutos del primer autobús que da tiempo a coger (EMT en directo)
   useEffect(() => {
     window.scrollTo(0, 0); // entre llaves: en navegadores nuevos scrollTo devuelve una promesa y React la tomaría por limpieza
   }, []);
+
+  // «Si sales ahora»: con el primer autobús de la EMT en directo, cuánto falta para tener que salir
+  const iPrimero = o.tramos.findIndex((t) => t.tipo === "viaje");
+  const primero = o.tramos[iPrimero];
+  const andarAntes = o.tramos.slice(0, iPrimero).reduce((s, t) => s + (t.tipo === "andar" ? t.minutos : 0), 0);
+  useEffect(() => {
+    if (!primero || primero.red !== "emt" || !enDirecto()) return;
+    let activo = true;
+    llegadasEmt(primero.desde.clave.slice(1))
+      .then((d) => {
+        const l = d.llegadas.find((x) => String(x.linea) === String(primero.linea) && x.minutos >= andarAntes);
+        if (activo) setPrimerBus(l ? l.minutos : null);
+      })
+      .catch(() => {});
+    return () => {
+      activo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const total = modo === "rapida" ? o.total : o.peor; // con prisa, el tiempo normal; lo seguro, el peor caso medido
+  const [hh, mm] = llegar.split(":").map(Number);
+  const salidaMin = hh * 60 + mm - total;
+  const salida = Number.isFinite(salidaMin) ? `${Math.floor(((salidaMin % 1440) + 1440) % 1440 / 60)}:${String(((salidaMin % 60) + 60) % 60).padStart(2, "0")}` : null;
+  const salAntes = primerBus != null ? primerBus - andarAntes : null;
+
   return (
     <div className="space-y-3">
       <button onClick={onSalir} className="min-h-[44px] text-[16px] font-bold text-principal">
@@ -400,6 +469,64 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
           Modo ensayo: viaje a las {Math.floor(contexto.hora)}:{String(Math.round((contexto.hora % 1) * 60)).padStart(2, "0")}, sin datos en directo.
         </p>
       )}
+
+      {/* ¿cuándo salgo? (como en las rutas de la demo) */}
+      <Tarjeta sombra className="!bg-amarillo p-4">
+        <div className="flex flex-wrap items-center gap-2 text-[15px] font-bold">
+          <span>Quiero llegar antes de las</span>
+          <input
+            type="time"
+            value={llegar.padStart(5, "0")}
+            onChange={(e) => e.target.value && setLlegar(e.target.value.replace(/^0(?=\d:)/, ""))}
+            className="pegatina h-[40px] rounded-lg bg-tarjeta px-2 text-[17px] font-bold"
+            aria-label="Hora a la que quieres llegar"
+          />
+        </div>
+        <p className="cifra mt-2 text-[34px] tabular-nums">{salida ? `Sal a las ${salida}` : "Sin datos suficientes"}</p>
+        <p className="mt-1 text-[15px]">
+          El viaje dura {o.total === o.peor ? `${o.total} min` : `${o.total}–${o.peor} min`} · {o.transbordos === 1 ? "1 transbordo" : `${o.transbordos} transbordos`}
+        </p>
+        {modo === "rapida" && o.peor > o.total && (
+          <p className="mt-2 inline-block rounded-md border-2 border-[#111] bg-rojo px-2 py-0.5 text-[14px] font-bold text-white">
+            Arriesgado: solo llegas si todo va bien
+          </p>
+        )}
+      </Tarjeta>
+
+      {salAntes != null && (
+        <Tarjeta className="flex items-center gap-3 p-4">
+          <span className="pegatina flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-xl bg-aviso-simulado">
+            <IconoReloj />
+          </span>
+          <p className="text-[16px] font-bold text-tinta">
+            {salAntes > 0
+              ? `Si sales ahora: sal en ${salAntes} min para coger el ${primero.linea}`
+              : salAntes === 0
+                ? `¡Sal ya para coger el ${primero.linea}!`
+                : `Al ${primero.linea} que viene ya no llegas: mira el siguiente`}
+          </p>
+        </Tarjeta>
+      )}
+
+      {/* modo «voy con prisa» (como en las rutas de la demo) */}
+      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Cómo quieres ir">
+        {[
+          { id: "segura", t: "Lo más seguro", s: "llega antes en el peor caso" },
+          { id: "rapida", t: "Voy con prisa", s: "lo más rápido si todo va bien" },
+        ].map((m) => (
+          <button
+            key={m.id}
+            role="radio"
+            aria-checked={modo === m.id}
+            onClick={() => setModo(m.id)}
+            className={`boton-pegatina min-h-[60px] rounded-xl px-3 py-2 text-left ${modo === m.id ? "bg-principal text-white" : "bg-tarjeta text-tinta"}`}
+          >
+            <span className="block text-[16px] font-bold">{m.t}</span>
+            <span className={`block text-[13px] ${modo === m.id ? "text-white/85" : "text-suave"}`}>{m.s}</span>
+          </button>
+        ))}
+      </div>
+
       <Tarjeta sombra className="space-y-2 p-4">
         <Resumen o={o} primera={primera} datos={datos} contexto={contexto} />
         {o.tramos.some((t) => t.tipo === "viaje") && (
@@ -420,6 +547,14 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
       <Tarjeta className="p-4">
         <PasosRuta o={o} desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} />
       </Tarjeta>
+
+      <button
+        onClick={onGuardar}
+        disabled={guardada}
+        className={`boton-pegatina min-h-[52px] w-full rounded-xl text-[17px] font-bold ${guardada ? "bg-verde text-white" : "bg-tarjeta text-tinta"}`}
+      >
+        {guardada ? "Guardada en Mis rutas ✓" : "Guardar en Mis rutas"}
+      </button>
     </div>
   );
 }
@@ -435,7 +570,7 @@ function margenMedido(datos, contexto) {
   };
 }
 
-export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onViaje = () => {} }) {
+export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onViaje = () => {}, onGuardar = () => {}, guardada = false }) {
   const [estado, setEstado] = useState({ cargando: true, opciones: [] });
   const [iniciada, setIniciada] = useState(null); // índice de la opción iniciada
   useEffect(() => {
@@ -479,6 +614,8 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onV
         desde={desde}
         hasta={hasta}
         onSalir={() => setIniciada(null)}
+        onGuardar={onGuardar}
+        guardada={guardada}
       />
     );
   // En el modo de ensayo (?hora=…) la hora es inventada: se dice, para que nadie crea que es la de ahora

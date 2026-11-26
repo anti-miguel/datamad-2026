@@ -402,6 +402,34 @@ export default function Parada({
   const tipoDia = contexto.finde ? "Fin de semana" : "Laborable";
   const propio = nombre && nombre !== parada.nombre;
 
+  // «¿Dónde te bajas?» también en las paradas que no son de la demo: las paradas siguientes de cada línea
+  // y los minutos hasta cada una, de los horarios oficiales (datos/red.json). Mismo formato que demo.json.
+  const [recorridosVivos, setRecorridosVivos] = useState({});
+  useEffect(() => {
+    let activo = true;
+    cargarRed()
+      .then((red) => {
+        const claves = new Set(clavesDeParada(parada, red));
+        if (!claves.size) return;
+        const out = {};
+        for (const p of red.patrones) {
+          const i = p.p.findIndex((c) => claves.has(c));
+          if (i < 0 || i === p.p.length - 1 || out[p.linea]) continue;
+          out[p.linea] = p.p.slice(i + 1).map((c, k) => ({
+            codigo: c.slice(1),
+            nombre: red.paradas.get(c).nombre,
+            minutos: Math.max(1, Math.round(p.t[i + 1 + k] - p.t[i])),
+          }));
+        }
+        if (activo) setRecorridosVivos(out);
+      })
+      .catch(() => {});
+    return () => {
+      activo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parada.id]);
+
   // Agrupa las llegadas por línea, en el orden en que llega la primera de cada una
   const porLinea = [];
   [...llegadas]
@@ -472,7 +500,7 @@ export default function Parada({
               llegadas={g.llegadas}
               red={parada.red}
               primera={i === 0}
-              recorrido={parada.recorridos?.[g.linea]}
+              recorrido={parada.recorridos?.[g.linea] ?? recorridosVivos[g.linea]}
               avisosLinea={avisos.filter((a) => a.linea === g.linea)}
               bajada={bajada}
               onBajada={onBajada}

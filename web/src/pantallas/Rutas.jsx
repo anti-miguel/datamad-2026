@@ -176,6 +176,21 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
   const deExperiencia = tuya?.ahorro_experiencia != null;
   // Con un viaje iniciado solo se enseña ese viaje (sin buscador, ruta de la demo ni «Mis rutas»)
   const [enViaje, setEnViaje] = useState(false);
+  // Rutas guardadas desde el planificador («Guardar en Mis rutas»): salen en «Mis rutas» junto a las de la demo
+  const [guardadas, setGuardadas] = useState(() => leerLocal("rutas_guardadas", []));
+  const mismoSitio = (a, b) => a && b && Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lon - b.lon) < 1e-5;
+  const yaGuardada = guardadas.some((g) => mismoSitio(g.desde, desde) && mismoSitio(g.hasta, hasta));
+  function guardarRuta() {
+    if (!desde || !hasta || yaGuardada) return;
+    const nuevas = [{ id: `g${Date.now()}`, nombre: `Hacia ${hasta.nombre}`, desde, hasta }, ...guardadas];
+    setGuardadas(nuevas);
+    guardarLocal("rutas_guardadas", nuevas);
+  }
+  function quitarRuta(id) {
+    const nuevas = guardadas.filter((g) => g.id !== id);
+    setGuardadas(nuevas);
+    guardarLocal("rutas_guardadas", nuevas);
+  }
 
   return (
     <div className="space-y-4">
@@ -231,7 +246,7 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
           )}
           {(tuya || plan) && <h2 className="pt-2 text-[16px] font-bold text-tinta-2">Más opciones con la EMT y el Metro</h2>}
           </div>
-          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} onViaje={setEnViaje} />
+          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} onViaje={setEnViaje} onGuardar={guardarRuta} guardada={yaGuardada} />
           {!tuya && plan && !enViaje && (
             <p className="text-[14px] text-tinta-2">¿Conoces un camino mejor? Guárdalo como tu ruta y te lo propondremos primero.</p>
           )}
@@ -240,6 +255,43 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
 
       <div hidden={enViaje} className="space-y-4">
       <h2 className="titulo pt-2 text-[22px] text-tinta">Mis rutas</h2>
+      {guardadas.map((g) => {
+        const nombre = nombres[`ruta-${g.id}`] ?? g.nombre;
+        return (
+          <Tarjeta key={g.id} className="overflow-hidden">
+            <div className="flex items-start gap-3 p-4 pb-3">
+              <span className="pegatina flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-xl bg-amarillo">
+                <IconoRutas />
+              </span>
+              <div className="min-w-0 flex-1">
+                <NombreEditable
+                  nombre={nombre}
+                  onCambiar={(n) => onRenombrar(`ruta-${g.id}`, n)}
+                  etiqueta={`Cambiar el nombre de la ruta ${nombre}`}
+                  className="titulo text-[19px] text-tinta"
+                />
+                <p className="mt-1 text-[15px] text-suave">
+                  {g.desde.nombre} → {g.hasta.nombre}
+                </p>
+              </div>
+              <button onClick={() => quitarRuta(g.id)} className="min-h-[44px] px-1 text-[14px] font-bold text-suave underline" aria-label={`Quitar ${nombre}`}>
+                Quitar
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                setDesde(g.desde);
+                setHasta(g.hasta);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="flex min-h-[56px] w-full items-center justify-between border-t-[2.5px] border-[#111] bg-hundido px-4 text-left"
+            >
+              <span className="text-[15px] text-tinta-2">Ver cómo ir ahora</span>
+              <span className="cifra text-[20px] text-principal">→</span>
+            </button>
+          </Tarjeta>
+        );
+      })}
       {rutas.map((ruta) => {
         const Icono = ICONOS[ruta.icono] ?? IconoRutas;
         const c = datos ? calcularRuta(datos, ruta, contexto, {}, "segura", demo) : null;
