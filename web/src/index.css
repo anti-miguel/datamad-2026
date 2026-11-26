@@ -215,3 +215,26 @@ input:focus-visible {
   font-size: 12px;
   line-height: 18px;
 }
+
+/* Nudos del mapa vectorial (MapLibre): paradas de subida y bajada, salida y destino */
+.nodo-mapa {
+  width: 14px;
+  height: 14px;
+  border: 3px solid #111;
+  border-radius: 50%;
+  background: #fff;
+}
+.nodo-mapa.nodo-salida {
+  width: 18px;
+  height: 18px;
+  background: #ffe15a;
+}
+.nodo-mapa.nodo-destino {
+  width: 18px;
+  height: 18px;
+  background: #1e8e3e;
+}
+.mapa-yavoy .maplibregl-ctrl-group {
+  border: 2px solid #111;
+  box-shadow: 2px 2px 0 #111;
+}
