@@ -189,6 +189,32 @@ export default function App() {
       .catch(() => setError(true));
   }, [intento]);
 
+  // Botón «atrás» del móvil: cada cambio de pantalla se apunta en el historial, así atrás vuelve a la anterior
+  // en vez de salir de la web (lo primero que hace mucha gente).
+  const desdeHistorial = useRef(false);
+  useEffect(() => {
+    const alVolver = (e) => {
+      const st = e.state;
+      if (!st?.pantalla) return;
+      desdeHistorial.current = true;
+      setPantalla(st.pantalla);
+      setParadaId(st.paradaId ?? null);
+      setRutaId(st.rutaId ?? null);
+    };
+    window.addEventListener("popstate", alVolver);
+    if (!history.state?.pantalla) history.replaceState({ pantalla: "paradas", paradaId: null, rutaId: null }, "");
+    return () => window.removeEventListener("popstate", alVolver);
+  }, []);
+  useEffect(() => {
+    if (desdeHistorial.current) {
+      desdeHistorial.current = false;
+      return;
+    }
+    const st = history.state;
+    if (st && st.pantalla === pantalla && st.paradaId === paradaId && st.rutaId === rutaId) return;
+    history.pushState({ pantalla, paradaId, rutaId }, "");
+  }, [pantalla, paradaId, rutaId]);
+
   // Cada vez que se cambia de pantalla, arriba del todo
   // (entre llaves: en navegadores nuevos scrollTo devuelve una promesa y React la tomaría por limpieza)
   useEffect(() => {
@@ -382,7 +408,7 @@ export default function App() {
   return (
     <div className="mx-auto min-h-dvh max-w-[430px]">
       <main className={`px-4 pt-4 ${conFranja ? "pb-[210px]" : "pb-[100px]"}`}>
-        {pantalla !== "paradas" && pantalla !== "avisos" && <AvisoAbono abono={abono} onVer={verAbono} />}
+        {pantalla !== "paradas" && pantalla !== "avisos" && !sesion.invitado && <AvisoAbono abono={abono} onVer={verAbono} />}
         <section id="pantalla-paradas" hidden={pantalla !== "paradas"}>
           <Paradas
             demo={demo}
@@ -391,7 +417,7 @@ export default function App() {
             favoritas={favoritas}
             nombres={nombres}
             usuario={sesion.nombre}
-            abono={abono}
+            abono={sesion.invitado ? null : abono}
             onCambiarAbono={cambiarAbono}
             onAbrirParada={abrirParada}
           />

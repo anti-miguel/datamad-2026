@@ -11,6 +11,55 @@ import { casillas } from "../lib/ventana.js";
 import { NombreEditable } from "./Rutas.jsx";
 import { incidenciasDelTramo } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
+import { enDirecto } from "../lib/emt.js";
+import { cargarRed } from "../lib/planificador.js";
+
+// Metro sin tiempo real (el servicio del Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
+function FrecuenciasMetro({ andenes, hora }) {
+  const [lineas, setLineas] = useState(null);
+  useEffect(() => {
+    let activo = true;
+    cargarRed()
+      .then((red) => {
+        const claves = new Set(andenes.map((a) => `m${a}`));
+        const vistas = new Map();
+        for (const p of red.patrones) {
+          if (p.red !== "metro") continue;
+          const i = p.p.findIndex((c) => claves.has(c));
+          if (i < 0 || i === p.p.length - 1) continue; // en la última estación no se sube
+          const k = `${p.linea}|${p.destino}`;
+          if (!vistas.has(k)) vistas.set(k, { linea: p.linea, destino: p.destino, cada: p.cada });
+        }
+        if (activo) setLineas([...vistas.values()].sort((a, b) => a.linea.localeCompare(b.linea, "es", { numeric: true })));
+      })
+      .catch(() => activo && setLineas([]));
+    return () => {
+      activo = false;
+    };
+  }, [andenes.join(",")]);
+  if (!lineas?.length) return null;
+  if (hora >= 1.5 && hora < 6)
+    return (
+      <Tarjeta className="p-4">
+        <p className="text-[16px] text-tinta">El Metro está cerrado ahora. Abre a las 6:00.</p>
+      </Tarjeta>
+    );
+  return (
+    <Tarjeta className="space-y-2 p-4">
+      <p className="text-[15px] text-tinta-2">Ahora no tenemos los minutos del Metro en directo. Según el horario oficial:</p>
+      <ul className="space-y-2">
+        {lineas.map((l) => (
+          <li key={`${l.linea}${l.destino}`} className="flex items-center gap-3">
+            <Linea linea={l.linea} red="metro" grande />
+            <span className="text-[16px] text-tinta">
+              → {l.destino} · <span className="font-bold">cada {l.cada} min</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Tarjeta>
+  );
+}
 
 function Minimapa({ lat, lon }) {
   const caja = useRef(null);
@@ -324,6 +373,12 @@ export default function Parada({
 
       {parada.lat != null && parada.lon != null && <Minimapa lat={parada.lat} lon={parada.lon} />}
 
+      {!parada.vivo && enDirecto() && !cargando && !error && (
+        <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[15px] text-[#111]">
+          <span className="font-bold">Minutos de ejemplo.</span> Aquí todavía no tenemos el tiempo real: los minutos son de la demo. Las ventanas y la fiabilidad sí son las que hemos medido.
+        </p>
+      )}
+
       {error ? (
         <Tarjeta className="space-y-3 p-4">
           <p className="text-[16px] text-tinta">No hemos podido cargar los datos. Vuelve a intentarlo.</p>
@@ -353,12 +408,13 @@ export default function Parada({
               fuente={parada.vivo ? (parada.red === "metro" ? "el Metro" : "la EMT") : "la app"}
             />
           ))}
-          {porLinea.length === 0 && (
+          {porLinea.length === 0 && parada.red === "metro" && parada.andenes && <FrecuenciasMetro andenes={parada.andenes} hora={contexto.hora} />}
+          {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && (
             <Tarjeta className="p-4">
               <p className="text-[16px] text-tinta">
                 {parada.red === "metro"
                   ? parada.sinDirecto
-                    ? "Ahora no podemos darte los minutos del Metro: el servicio de tiempos del Consorcio no responde. Prueba otra vez en un rato."
+                    ? "Ahora no podemos darte los minutos del Metro."
                     : "Ahora mismo el Metro no anuncia ningún tren en esta estación."
                   : parada.sinDirecto
                     ? "Ahora no podemos consultar la EMT. Prueba otra vez en un rato."
@@ -368,7 +424,9 @@ export default function Parada({
           )}
           <p className="text-[13px] text-suave">
             {parada.vivo
-              ? parada.red === "metro"
+              ? parada.red === "metro" && parada.sinDirecto
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial del Metro · Fuente: Consorcio Regional de Transportes de Madrid`
+                : parada.red === "metro"
                 ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Metro, se actualizan cada 15 s · ventanas medidas · Fuente: Consorcio Regional de Transportes de Madrid`
                 : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 15 s · ventanas medidas · Powered by EMT de Madrid`
               : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas`}

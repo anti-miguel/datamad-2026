@@ -246,7 +246,7 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
       </div>
       <div className="flex flex-wrap-reverse items-end justify-between gap-x-3 gap-y-1">
         <div>
-          {usuario && <p className="text-[16px] font-bold text-tinta-2">Hola, {usuario}</p>}
+          {usuario && usuario !== "Invitado" && <p className="text-[16px] font-bold text-tinta-2">Hola, {usuario}</p>}
           <h1 className="titulo text-[30px] text-tinta min-[360px]:text-[34px]">Mis paradas</h1>
         </div>
         <Logo alto={30} className="mb-1 w-[112px] shrink-0" />
