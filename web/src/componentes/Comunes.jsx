@@ -53,8 +53,8 @@ export function IconoRed({ red, grande = false }) {
     return (
       <svg width={lado} height={lado} viewBox="0 0 48 48" className="shrink-0" role="img" aria-label={NOMBRE_ICONO[red]}>
         <circle cx="24" cy="24" r="22.75" fill="#EE2B30" stroke="#111" strokeWidth="2.5" />
-        {/* arco blanco de tres cuartos: empieza arriba, gira por la derecha y abajo, y acaba a la izquierda con cortes rectos */}
-        <path d="M24 8.8A15.2 15.2 0 1 1 8.8 24H16.4A7.6 7.6 0 1 0 24 16.4Z" fill="#fff" />
+        {/* arco blanco de 225° (no los tres cuartos de la señal): empieza arriba, gira por la derecha y acaba abajo a la izquierda */}
+        <path d="M24 8.8A15.2 15.2 0 1 1 13.25 34.75L18.63 29.37A7.6 7.6 0 1 0 24 16.4Z" fill="#fff" />
       </svg>
     );
   }
