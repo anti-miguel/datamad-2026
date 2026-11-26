@@ -102,7 +102,30 @@ function clavesDeParada(parada, red) {
   return [];
 }
 
-function Minimapa({ parada }) {
+// Líneas ocultas por parada (solo se guardan las de paradas favoritas)
+function leerOcultas() {
+  try {
+    return JSON.parse(localStorage.getItem("lineas_ocultas") || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+function ocultasGuardadas(id) {
+  const v = leerOcultas()[id];
+  return Array.isArray(v) ? v : [];
+}
+function guardarOcultas(id, lista) {
+  try {
+    const todo = leerOcultas();
+    if (lista.length) todo[id] = lista;
+    else delete todo[id];
+    localStorage.setItem("lineas_ocultas", JSON.stringify(todo));
+  } catch {
+    // sin almacenamiento: la selección dura lo que la visita
+  }
+}
+
+function Minimapa({ parada, ocultas = [] }) {
   const caja = useRef(null);
   const { lat, lon } = parada;
   useEffect(() => {
@@ -136,7 +159,7 @@ function Minimapa({ parada }) {
           const i = p.p.findIndex((c) => claves.has(c));
           if (i < 0 || i === p.p.length - 1) return;
           const k = `${p.red}${p.linea}${p.p[i + 1]}`; // una vez por línea y sentido
-          if (vistos.has(k)) return;
+          if (vistos.has(k) || (p.red === parada.red && ocultas.includes(p.linea))) return;
           vistos.add(k);
           const aqui = red.paradas.get(p.p[i]);
           const siguiente = red.paradas.get(p.p[i + 1]);
@@ -185,7 +208,7 @@ function Minimapa({ parada }) {
       mapa.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, parada.id]);
+  }, [lat, lon, parada.id, ocultas.join(",")]);
   return <div ref={caja} className="mapa-yavoy pegatina h-[180px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la parada y de las líneas que pasan por ella" />;
 }
 
@@ -510,6 +533,19 @@ export default function Parada({
   // Metro: orden fijo por número de línea, para que las tarjetas no salten cada 15 s mientras eliges sentido
   if (parada.red === "metro") porLinea.sort((x, y) => x.linea.localeCompare(y.linea, "es", { numeric: true }));
 
+  // Líneas ocultas: se tocan en la fila de líneas. En una favorita se recuerdan (localStorage «lineas_ocultas»).
+  const [sel, setSel] = useState(() => ({ id: parada.id, ocultas: ocultasGuardadas(parada.id) }));
+  const ocultas = sel.id === parada.id ? sel.ocultas : ocultasGuardadas(parada.id);
+  const alternarLinea = (l) => setSel({ id: parada.id, ocultas: ocultas.includes(l) ? ocultas.filter((x) => x !== l) : [...ocultas, l] });
+  useEffect(() => {
+    if (sel.id !== parada.id) return;
+    guardarOcultas(parada.id, favorita ? sel.ocultas : []);
+  }, [sel, favorita, parada.id]);
+  const todasLineas = [...new Set([...porLinea.map((g) => g.linea), ...(parada.lineas ?? [])])].sort((a, b) =>
+    a.localeCompare(b, "es", { numeric: true }),
+  );
+  const visibles = porLinea.filter((g) => !ocultas.includes(g.linea));
+
   return (
     <div className="space-y-4">
       <div>
@@ -537,14 +573,40 @@ export default function Parada({
             <IconoEstrella llena={favorita} />
           </button>
         </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {(porLinea.length ? porLinea.map((g) => g.linea) : parada.lineas ?? []).map((l) => (
-            <Linea key={l} linea={l} red={parada.red} />
-          ))}
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Líneas: toca una para ocultarla o enseñarla">
+          {todasLineas.map((l) => {
+            const oculta = ocultas.includes(l);
+            return (
+              <button
+                key={l}
+                onClick={() => alternarLinea(l)}
+                aria-pressed={!oculta}
+                aria-label={`${oculta ? "Enseñar" : "Ocultar"} la línea ${l}`}
+                className={`rounded-lg transition-opacity ${oculta ? "opacity-30 grayscale" : ""}`}
+              >
+                <Linea linea={l} red={parada.red} />
+              </button>
+            );
+          })}
         </div>
+        {todasLineas.length > 1 && (
+          <p className="mt-1.5 text-[13px] text-suave">
+            {ocultas.length ? (
+              <>
+                {ocultas.length === 1 ? "1 línea oculta" : `${ocultas.length} líneas ocultas`}
+                {favorita ? " · se recuerda en favoritas" : " · guarda la parada en ★ para recordarlo"} ·{" "}
+                <button onClick={() => setSel({ id: parada.id, ocultas: [] })} className="font-bold text-principal underline">
+                  Ver todas
+                </button>
+              </>
+            ) : (
+              "Toca una línea para ocultarla"
+            )}
+          </p>
+        )}
       </div>
 
-      {parada.lat != null && parada.lon != null && <Minimapa parada={parada} />}
+      {parada.lat != null && parada.lon != null && <Minimapa parada={parada} ocultas={ocultas} />}
 
       {!parada.vivo && enDirecto() && !cargando && !error && (
         <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[15px] text-[#111]">
@@ -563,7 +625,7 @@ export default function Parada({
         <ParadaCargando />
       ) : (
         <>
-          {porLinea.map((g, i) => (parada.red === "metro" ? (
+          {visibles.map((g, i) => (parada.red === "metro" ? (
             <TarjetaSentidos
               key={g.linea}
               linea={g.linea}
