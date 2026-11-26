@@ -326,7 +326,7 @@ function PasosRuta({ o, desde, hasta, datos, contexto, onAbrirParada }) {
   });
   if (anterior) filas.splice(filas.length - (o.tramos[o.tramos.length - 1]?.tipo === "andar" ? 1 : 0), 0, <Hito key="fin-v" texto={anterior.red === "metro" ? `Metro ${anterior.hasta.nombre}` : anterior.hasta.nombre} />);
   return (
-    <div className="border-t-2 border-linea pt-3">
+    <div>
       <Hito texto={desde?.nombre ?? "Salida"} sub="Salida" />
       {filas}
       <Hito texto={hasta?.nombre ?? "Llegada"} sub="Llegada" final />
@@ -334,66 +334,88 @@ function PasosRuta({ o, desde, hasta, datos, contexto, onAbrirParada }) {
   );
 }
 
-function Opcion({ o, primera, datos, contexto, onAbrirParada, desde, hasta }) {
-  const [abierta, setAbierta] = useState(false);
-  const [mapa, setMapa] = useState(false);
+// Cabecera y resumen de una opción (se repiten en la lista y en el viaje iniciado)
+function Resumen({ o, primera, datos, contexto }) {
   const viajes = o.tramos.filter((t) => t.tipo === "viaje");
   const primero = viajes[0];
   return (
-    <Tarjeta sombra={primera} className="space-y-2 p-4">
+    <>
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          {primera && (
-            <span className="inline-block rounded-md border-2 border-[#111] bg-amarillo px-2 text-[12px] font-bold text-[#111]">RECOMENDADA</span>
-          )}
-          <Cadena tramos={o.tramos} />
-        </div>
-        <span className="shrink-0 text-right">
-          <span className="cifra block text-[22px] text-principal">≈ {o.total} min</span>
-          {o.margen > 0 && <span className="block text-[13px] text-suave">si se tuerce: {o.peor}</span>}
-        </span>
-      </div>
-
-      <p className="text-[14px] text-tinta-2">
-        {primero ? (
-          <>
-            Subes en <span className="font-bold text-tinta">{primero.desde.nombre}</span>
-            {primero.red === "emt" && enDirecto() && (
-              <>
-                {" · "}
-                <PrimerAutobus tramo={primero} andarAntes={o.tramos[0]?.tipo === "andar" ? o.tramos[0].minutos : 0} datos={datos} contexto={contexto} />
-              </>
+          <div className="space-y-1">
+            {primera && (
+              <span className="inline-block rounded-md border-2 border-[#111] bg-amarillo px-2 text-[12px] font-bold text-[#111]">RECOMENDADA</span>
             )}
-            {` · ${o.andado} min andando`}
-            {o.transbordos ? ` · ${o.transbordos} transbordo` : ""}
-          </>
-        ) : (
-          `${o.total} min andando`
-        )}
-      </p>
+            <Cadena tramos={o.tramos} />
+          </div>
+          <span className="shrink-0 text-right">
+            <span className="cifra block text-[22px] text-principal">≈ {o.total} min</span>
+            {o.margen > 0 && <span className="block text-[13px] text-suave">si se tuerce: {o.peor}</span>}
+          </span>
+        </div>
+      <p className="text-[14px] text-tinta-2">
+          {primero ? (
+            <>
+              Subes en <span className="font-bold text-tinta">{primero.desde.nombre}</span>
+              {primero.red === "emt" && enDirecto() && (
+                <>
+                  {" · "}
+                  <PrimerAutobus tramo={primero} andarAntes={o.tramos[0]?.tipo === "andar" ? o.tramos[0].minutos : 0} datos={datos} contexto={contexto} />
+                </>
+              )}
+              {` · ${o.andado} min andando`}
+              {o.transbordos ? ` · ${o.transbordos} transbordo` : ""}
+            </>
+          ) : (
+            `${o.total} min andando`
+          )}
+        </p>
+    </>
+  );
+}
 
-      {viajes.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <button onClick={() => setAbierta((x) => !x)} aria-expanded={abierta} className="min-h-[44px] text-[14px] font-bold text-principal">
-            {abierta ? "Ocultar pasos ▴" : "Ver pasos ▾"}
-          </button>
-          {/* Interruptor del mapa en directo: apagado por defecto, quien ya se sabe la ruta no gasta datos ni batería */}
+function Opcion({ o, primera, datos, contexto, onIniciar }) {
+  return (
+    <Tarjeta sombra={primera} className="space-y-2 p-4">
+      <Resumen o={o} primera={primera} datos={datos} contexto={contexto} />
+      <button onClick={onIniciar} className="boton-pegatina min-h-[48px] w-full rounded-xl bg-principal text-[17px] font-bold text-white">
+        Iniciar
+      </button>
+    </Tarjeta>
+  );
+}
+
+// Viaje iniciado: solo esta ruta, con el mapa en directo (interruptor, apagado por defecto) y los pasos
+function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSalir }) {
+  const [mapa, setMapa] = useState(false);
+  useEffect(() => {
+    window.scrollTo(0, 0); // entre llaves: en navegadores nuevos scrollTo devuelve una promesa y React la tomaría por limpieza
+  }, []);
+  return (
+    <div className="space-y-3">
+      <button onClick={onSalir} className="min-h-[44px] text-[16px] font-bold text-principal">
+        ← Otras opciones
+      </button>
+      <Tarjeta sombra className="space-y-2 p-4">
+        <Resumen o={o} primera={primera} datos={datos} contexto={contexto} />
+        {o.tramos.some((t) => t.tipo === "viaje") && (
           <button
             role="switch"
             aria-checked={mapa}
             onClick={() => setMapa((x) => !x)}
-            className="flex min-h-[44px] items-center gap-2 text-[14px] font-bold text-tinta"
+            className="flex min-h-[44px] w-full items-center justify-between gap-2 text-[15px] font-bold text-tinta"
           >
             Mapa en directo
             <span className={`relative inline-block h-[26px] w-[46px] rounded-full border-2 border-[#111] transition-colors ${mapa ? "bg-verde" : "bg-hundido"}`}>
               <span className={`absolute top-[2px] h-[18px] w-[18px] rounded-full border-2 border-[#111] bg-white transition-all ${mapa ? "left-[22px]" : "left-[2px]"}`} />
             </span>
           </button>
-        </div>
-      )}
-      {mapa && <MapaRuta opcion={o} desde={desde} hasta={hasta} />}
-      {abierta && <PasosRuta o={o} desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} />}
-    </Tarjeta>
+        )}
+        {mapa && <MapaRuta opcion={o} desde={desde} hasta={hasta} />}
+      </Tarjeta>
+      <Tarjeta className="p-4">
+        <PasosRuta o={o} desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} />
+      </Tarjeta>
+    </div>
   );
 }
 
@@ -410,8 +432,10 @@ function margenMedido(datos, contexto) {
 
 export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada }) {
   const [estado, setEstado] = useState({ cargando: true, opciones: [] });
+  const [iniciada, setIniciada] = useState(null); // índice de la opción iniciada
   useEffect(() => {
     let activo = true;
+    setIniciada(null);
     setEstado({ cargando: true, opciones: [] });
     cargarRed()
       .then((red) => activo && setEstado({ cargando: false, opciones: planificar(red, desde, hasta, { hora: contexto?.hora, margen: margenMedido(datos, contexto) }) }))
@@ -435,10 +459,23 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada }) {
         <p className="mt-1 text-[14px] text-suave">De momento el planificador solo usa la EMT y el Metro de Madrid.</p>
       </Tarjeta>
     );
+  if (iniciada !== null && estado.opciones[iniciada])
+    return (
+      <Viaje
+        o={estado.opciones[iniciada]}
+        primera={iniciada === 0}
+        datos={datos}
+        contexto={contexto}
+        onAbrirParada={abrir}
+        desde={desde}
+        hasta={hasta}
+        onSalir={() => setIniciada(null)}
+      />
+    );
   return (
     <section className="space-y-3" aria-live="polite">
       {estado.opciones.map((o, i) => (
-        <Opcion key={i} o={o} primera={i === 0} datos={datos} contexto={contexto} onAbrirParada={abrir} desde={desde} hasta={hasta} />
+        <Opcion key={i} o={o} primera={i === 0} datos={datos} contexto={contexto} onIniciar={() => setIniciada(i)} />
       ))}
       <p className="text-[13px] text-suave">
         «Si se tuerce»: lo que tarda 1 de cada 10 veces, según lo que hemos medido. Primero, la que menos se retrasa y menos cansa.
