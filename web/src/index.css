@@ -298,3 +298,18 @@ input:focus-visible {
   flex-direction: column;
   gap: 8px;
 }
+
+/* Flecha del sentido de la línea en el minimapa de la parada */
+.flecha-sentido {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #111;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}

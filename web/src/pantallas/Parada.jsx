@@ -65,8 +65,17 @@ function FrecuenciasMetro({ andenes, hora }) {
 // Minimapa de la parada: dónde está y, encima, el trozo de recorrido de cada línea que pasa por ella
 // (unas paradas antes y bastantes después, hacia donde va), para ver por dónde sigue y no solo edificios.
 // Recorridos de los horarios oficiales de la EMT y del Metro (datos/red.json); Cercanías e interurbanos aún no.
-const ANTES = 2;
-const DESPUES = 8;
+const ANTES = 1;
+const DESPUES = 3;
+const ZOOM_PARADA = 17; // cerca: se ve en qué acera está la parada y hacia dónde va
+
+// Rumbo en grados (0 = norte) de a hacia b, para girar la flecha del sentido
+function rumbo([la1, lo1], [la2, lo2]) {
+  const r = Math.PI / 180;
+  const y = Math.sin((lo2 - lo1) * r) * Math.cos(la2 * r);
+  const x = Math.cos(la1 * r) * Math.sin(la2 * r) - Math.sin(la1 * r) * Math.cos(la2 * r) * Math.cos((lo2 - lo1) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
 
 function clavesDeParada(parada, red) {
   if (parada.red === "emt" && /^emt-\d+$/.test(parada.id)) return [`e${parada.id.slice(4)}`];
@@ -115,14 +124,34 @@ function Minimapa({ parada }) {
             const q = red.paradas.get(c);
             return [q.lat, q.lon];
           });
-          trozos.push({ camino, color: colorDeLinea(p.red, p.linea) });
+          const aqui = red.paradas.get(p.p[i]);
+          const siguiente = red.paradas.get(p.p[i + 1]);
+          trozos.push({ camino, color: colorDeLinea(p.red, p.linea), desde: [aqui.lat, aqui.lon], hacia: [siguiente.lat, siguiente.lon] });
         }
         if (!trozos.length) return;
         for (const t of trozos) L.polyline(t.camino, { color: "#111111", weight: 7, opacity: 0.9, interactive: false }).addTo(mapa);
         for (const t of trozos) L.polyline(t.camino, { color: t.color, weight: 4, opacity: 1, interactive: false }).addTo(mapa);
+        // flecha del sentido: un poco después de la parada, girada hacia la siguiente
+        const direcciones = new Set(); // una flecha por dirección, aunque pasen varias líneas
+        for (const t of trozos) {
+          const sector = Math.round(rumbo(t.desde, t.hacia) / 30);
+          if (direcciones.has(sector)) continue;
+          direcciones.add(sector);
+          // a unos 50 m de la parada (o a un tercio, si la siguiente está muy cerca), para que se vea con el zoom cercano
+          const metros = Math.hypot((t.hacia[0] - t.desde[0]) * 111000, (t.hacia[1] - t.desde[1]) * 85000) || 1;
+          const f = Math.min(0.35, 50 / metros);
+          const pos = [t.desde[0] + (t.hacia[0] - t.desde[0]) * f, t.desde[1] + (t.hacia[1] - t.desde[1]) * f];
+          const icono = L.divIcon({
+            className: "",
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+            html: `<span class="flecha-sentido" style="transform:rotate(${rumbo(t.desde, t.hacia)}deg);background:${t.color}">↑</span>`,
+          });
+          L.marker(pos, { icon: icono, interactive: false, keyboard: false }).addTo(mapa);
+        }
         marca.remove();
         marca = punto(); // la parada, encima de las líneas
-        mapa.fitBounds(L.latLngBounds([[lat, lon], ...trozos.flatMap((t) => t.camino)]), { padding: [18, 18], maxZoom: 17 });
+        mapa.setView([lat, lon], ZOOM_PARADA); // centrado en la parada y cerca, aunque las líneas sigan fuera
       })
       .catch(() => {});
     // Si cambia el ancho (girar el móvil), el mapa se recoloca para no dejar zonas grises
