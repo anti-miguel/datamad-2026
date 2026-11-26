@@ -158,3 +158,14 @@ input:focus-visible {
 .leaflet-container img.leaflet-tile {
   mix-blend-mode: normal !important;
 }
+
+/* Etiquetas de los autobuses en el mapa en directo */
+.leaflet-tooltip.etiqueta-bus {
+  border: 2px solid #111;
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #111;
+  box-shadow: none;
+}

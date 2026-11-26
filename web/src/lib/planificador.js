@@ -83,6 +83,11 @@ function tramoViaje(red, pi, i, j) {
     hasta: red.paradas.get(pat.p[j]),
     paradas: j - i,
     minutos: Math.max(1, Math.round(pat.t[j] - pat.t[i])),
+    // recorrido parada a parada, para el mapa en directo
+    camino: pat.p.slice(i, j + 1).map((c) => {
+      const p = red.paradas.get(c);
+      return [p.lat, p.lon];
+    }),
   };
 }
 

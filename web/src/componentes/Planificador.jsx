@@ -7,6 +7,7 @@ import { normalizar, calcularLlegada, ventanaEstrecha } from "../lib/util.js";
 import { cargarRed, planificar } from "../lib/planificador.js";
 import { consultar } from "../lib/consultar.js";
 import { enDirecto, llegadasEmt, paradaEmtViva } from "../lib/emt.js";
+import MapaRuta from "./MapaRuta.jsx";
 
 const BASE = import.meta.env?.BASE_URL ?? "/";
 
@@ -197,8 +198,9 @@ function Cadena({ tramos }) {
   );
 }
 
-function Opcion({ o, primera, datos, contexto, onAbrirParada }) {
+function Opcion({ o, primera, datos, contexto, onAbrirParada, desde, hasta }) {
   const [abierta, setAbierta] = useState(false);
+  const [mapa, setMapa] = useState(false);
   const viajes = o.tramos.filter((t) => t.tipo === "viaje");
   const primero = viajes[0];
   return (
@@ -235,14 +237,25 @@ function Opcion({ o, primera, datos, contexto, onAbrirParada }) {
       </p>
 
       {viajes.length > 0 && (
-        <button
-          onClick={() => setAbierta((x) => !x)}
-          aria-expanded={abierta}
-          className="text-[14px] font-bold text-principal"
-        >
-          {abierta ? "Ocultar pasos ▴" : "Ver pasos ▾"}
-        </button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button onClick={() => setAbierta((x) => !x)} aria-expanded={abierta} className="min-h-[44px] text-[14px] font-bold text-principal">
+            {abierta ? "Ocultar pasos ▴" : "Ver pasos ▾"}
+          </button>
+          {/* Interruptor del mapa en directo: apagado por defecto, quien ya se sabe la ruta no gasta datos ni batería */}
+          <button
+            role="switch"
+            aria-checked={mapa}
+            onClick={() => setMapa((x) => !x)}
+            className="flex min-h-[44px] items-center gap-2 text-[14px] font-bold text-tinta"
+          >
+            Mapa en directo
+            <span className={`relative inline-block h-[26px] w-[46px] rounded-full border-2 border-[#111] transition-colors ${mapa ? "bg-verde" : "bg-hundido"}`}>
+              <span className={`absolute top-[2px] h-[18px] w-[18px] rounded-full border-2 border-[#111] bg-white transition-all ${mapa ? "left-[22px]" : "left-[2px]"}`} />
+            </span>
+          </button>
+        </div>
       )}
+      {mapa && <MapaRuta opcion={o} desde={desde} hasta={hasta} />}
       {abierta && (
         <ol className="space-y-1.5 border-t-2 border-linea pt-2 text-[14px] text-tinta-2">
           {o.tramos.map((t, i) =>
@@ -311,7 +324,7 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada }) {
   return (
     <section className="space-y-3" aria-live="polite">
       {estado.opciones.map((o, i) => (
-        <Opcion key={i} o={o} primera={i === 0} datos={datos} contexto={contexto} onAbrirParada={abrir} />
+        <Opcion key={i} o={o} primera={i === 0} datos={datos} contexto={contexto} onAbrirParada={abrir} desde={desde} hasta={hasta} />
       ))}
       <p className="text-[13px] text-suave">
         «Si se tuerce»: lo que tarda 1 de cada 10 veces, según lo que hemos medido. Primero, la que menos se retrasa y menos cansa.
