@@ -40,6 +40,45 @@ function esNuestraMetro(demo, estacion) {
   return demo.paradas.some((p) => p.red === "metro" && normalizar(p.nombre) === normalizar(estacion.nombre));
 }
 
+// Estaciones de Cercanías (horarios oficiales de Renfe, datos/red.json), una por nombre, con sus líneas.
+// Sin minutos en directo: al abrirlas se ve cada cuánto pasa cada línea.
+let estacionesRenfe = null;
+function estacionesCercanias(red) {
+  if (estacionesRenfe) return estacionesRenfe;
+  const porNombre = new Map();
+  for (const p of red.paradas.values()) {
+    if (p.red !== "renfe") continue;
+    const nombre = p.nombre.replace(/^Madrid[\s-]+/i, "");
+    const k = normalizar(nombre);
+    if (!porNombre.has(k)) porNombre.set(k, { id: p.clave.slice(1), nombre, lat: p.lat, lon: p.lon, claves: [], lineas: new Set(), clave: k });
+    porNombre.get(k).claves.push(p.clave);
+  }
+  const deClave = new Map([...porNombre.values()].flatMap((e) => e.claves.map((c) => [c, e])));
+  for (const pat of red.patrones) if (pat.red === "renfe") for (const c of pat.p) deClave.get(c)?.lineas.add(pat.linea);
+  estacionesRenfe = [...porNombre.values()].map((e) => ({ ...e, lineas: [...e.lineas].sort((a, b) => a.localeCompare(b, "es", { numeric: true })) }));
+  return estacionesRenfe;
+}
+
+function paradaRenfeViva(e) {
+  return {
+    id: `renfe-${e.id}`,
+    nombre: e.nombre,
+    red: "renfe",
+    tipo: "estacion",
+    lat: e.lat,
+    lon: e.lon,
+    lineas: e.lineas,
+    claves: e.claves,
+    etiqueta: `Cercanías · estación de ${e.nombre}`,
+    llegadas: [],
+    directa: true,
+  };
+}
+
+function esNuestraRenfe(demo, estacion) {
+  return demo.paradas.some((p) => p.red === "renfe" && normalizar(p.nombre) === estacion.clave);
+}
+
 // Todas las paradas de la EMT (GTFS oficial, servidor/indice_paradas_emt.py). Se descarga la primera vez que se busca.
 let indiceEmt = null;
 function cargarIndiceEmt() {
@@ -88,7 +127,7 @@ function TarjetaParada({ parada, favorita, nombre, onAbrir, distancia = null }) 
 }
 
 // «Cerca de ti»: nuestras paradas medidas que están cerca y las paradas de la EMT de alrededor, con llegadas en directo
-function CercaDeTi({ estado, nuestras, metro = [], emt, favoritas, nombres, onAbrir, onCerrar }) {
+function CercaDeTi({ estado, nuestras, metro = [], renfe = [], emt, favoritas, nombres, onAbrir, onCerrar }) {
   return (
     <section className="space-y-3" aria-live="polite">
       <div className="flex items-center justify-between">
@@ -105,7 +144,7 @@ function CercaDeTi({ estado, nuestras, metro = [], emt, favoritas, nombres, onAb
       {estado === "fuera" && nuestras.length === 0 && (
         <p className="text-[15px] text-suave">Parece que no estás en Madrid. Busca la parada por su nombre.</p>
       )}
-      {estado === "listo" && nuestras.length === 0 && metro.length === 0 && emt.length === 0 && (
+      {estado === "listo" && nuestras.length === 0 && metro.length === 0 && renfe.length === 0 && emt.length === 0 && (
         <p className="text-[15px] text-suave">No encontramos paradas de autobús de la EMT cerca. Busca la parada por su nombre.</p>
       )}
       {nuestras.map(({ parada, metros }) => (
@@ -120,6 +159,19 @@ function CercaDeTi({ estado, nuestras, metro = [], emt, favoritas, nombres, onAb
       ))}
       {metro.map(({ estacion, metros }) => {
         const parada = paradaMetroViva(estacion);
+        return (
+          <TarjetaParada
+            key={parada.id}
+            parada={parada}
+            favorita={favoritas.includes(parada.id)}
+            nombre={nombres[parada.id]}
+            distancia={metros}
+            onAbrir={() => onAbrir(parada.id, parada)}
+          />
+        );
+      })}
+      {renfe.map(({ estacion, metros }) => {
+        const parada = paradaRenfeViva(estacion);
         return (
           <TarjetaParada
             key={parada.id}
@@ -159,6 +211,7 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
   const [emtTodas, setEmtTodas] = useState(null); // null = sin cargar, "error" o la lista
   const [metroTodas, setMetroTodas] = useState(null);
   const [lineasTodas, setLineasTodas] = useState(null);
+  const [renfeTodas, setRenfeTodas] = useState(null);
 
   function buscarCerca() {
     if (!navigator.geolocation) return setCerca({ estado: "sin-gps", nuestras: [], emt: [] });
@@ -182,9 +235,19 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
               .slice(0, 3),
           )
           .catch(() => []);
-        Promise.all([cercanasEmt(yo.lat, yo.lon).catch(() => null), metroCerca]).then(([d, metro]) => {
-          if (!d) return setCerca({ estado: "error-emt", nuestras, metro, emt: [] });
-          setCerca({ estado: d.fuera ? "fuera" : "listo", nuestras, metro, emt: (d.paradas ?? []).filter((p) => !medidas.has(`emt-${p.id}`)) });
+        const renfeCerca = cargarRed()
+          .then((red) =>
+            estacionesCercanias(red)
+              .filter((e) => !esNuestraRenfe(demo, e))
+              .map((estacion) => ({ estacion, metros: distanciaM(yo, estacion) }))
+              .filter((x) => x.metros <= MAX_METRO_CERCA_M)
+              .sort((a, b) => a.metros - b.metros)
+              .slice(0, 2),
+          )
+          .catch(() => []);
+        Promise.all([cercanasEmt(yo.lat, yo.lon).catch(() => null), metroCerca, renfeCerca]).then(([d, metro, renfe]) => {
+          if (!d) return setCerca({ estado: "error-emt", nuestras, metro, renfe, emt: [] });
+          setCerca({ estado: d.fuera ? "fuera" : "listo", nuestras, metro, renfe, emt: (d.paradas ?? []).filter((p) => !medidas.has(`emt-${p.id}`)) });
         });
       },
       (e) => setCerca({ estado: e.code === 1 ? "denegado" : "sin-gps", nuestras: [], emt: [] }),
@@ -216,7 +279,10 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
   useEffect(() => {
     if (!buscando || Array.isArray(lineasTodas)) return;
     cargarRed()
-      .then((red) => setLineasTodas(lineasDeRed(red)))
+      .then((red) => {
+        setLineasTodas(lineasDeRed(red));
+        setRenfeTodas(estacionesCercanias(red).filter((e) => !esNuestraRenfe(demo, e)));
+      })
       .catch(() => setLineasTodas("error"));
   }, [buscando, lineasTodas]);
   const resultadosLineas = useMemo(
@@ -229,6 +295,13 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
     if (p.red === "emt") {
       const num = p.clave.slice(1);
       return onAbrirParada(`emt-${num}`, paradaEmtViva({ id: num, nombre: p.nombre, lat: p.lat, lon: p.lon, lineas: l ? [l.linea] : [] }));
+    }
+    if (p.red === "renfe") {
+      const e = estacionesCercanias(await cargarRed()).find((x) => x.claves.includes(p.clave));
+      const nuestraR = e && todas.find((x) => x.red === "renfe" && normalizar(x.nombre) === e.clave);
+      if (nuestraR) return onAbrirParada(nuestraR.id);
+      if (e) onAbrirParada(`renfe-${e.id}`, paradaRenfeViva(e));
+      return;
     }
     const nuestra = todas.find((x) => x.red === "metro" && normalizar(x.nombre) === normalizar(p.nombre));
     if (nuestra) return onAbrirParada(nuestra.id);
@@ -250,6 +323,16 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
       .sort((a, b) => b.clave.startsWith(q) - a.clave.startsWith(q) || a.nombre.localeCompare(b.nombre))
       .slice(0, 10);
   }, [buscando, metroTodas, conMetro, q]);
+
+  const conRenfe = ["todo", "renfe"].includes(filtro);
+  const resultadosRenfe = useMemo(() => {
+    if (!buscando || !Array.isArray(renfeTodas) || !conRenfe) return [];
+    const palabras = q.split(/\s+/).filter(Boolean);
+    return renfeTodas
+      .filter((e) => palabras.every((w) => e.clave.includes(w)) || e.lineas.some((l) => normalizar(l) === q))
+      .sort((a, b) => b.clave.startsWith(q) - a.clave.startsWith(q) || a.nombre.localeCompare(b.nombre))
+      .slice(0, 10);
+  }, [buscando, renfeTodas, conRenfe, q]);
 
   // Paradas de la EMT que no son nuestras: por nombre (todas las palabras, en cualquier orden) o por número
   const conEmt = ["todo", "emt"].includes(filtro);
@@ -354,6 +437,19 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
           {resultadosMetro.length > 0 && <h2 className="pt-1 text-[16px] font-bold text-tinta-2">Estaciones de Metro · en directo</h2>}
           {resultadosMetro.map((e) => {
             const parada = paradaMetroViva(e);
+            return (
+              <TarjetaParada
+                key={parada.id}
+                parada={parada}
+                favorita={favoritas.includes(parada.id)}
+                nombre={nombres[parada.id]}
+                onAbrir={() => onAbrirParada(parada.id, parada)}
+              />
+            );
+          })}
+          {resultadosRenfe.length > 0 && <h2 className="pt-1 text-[16px] font-bold text-tinta-2">Estaciones de Cercanías · horario oficial</h2>}
+          {resultadosRenfe.map((e) => {
+            const parada = paradaRenfeViva(e);
             return (
               <TarjetaParada
                 key={parada.id}

@@ -12,47 +12,54 @@ import { casillas } from "../lib/ventana.js";
 import { NombreEditable } from "./Rutas.jsx";
 import { incidenciasDelTramo } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
-import { enDirecto } from "../lib/emt.js";
+import { distanciaM, enDirecto } from "../lib/emt.js";
 import { cargarRed } from "../lib/planificador.js";
 import { cargarFormas, decodificar, metrosEntre, puntoA, recorte } from "../lib/formas.js";
 
-// Metro sin tiempo real (el servicio del Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
-function FrecuenciasMetro({ andenes, hora }) {
+// Sin tiempo real (Cercanías, o el Metro si el Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
+function FrecuenciasHorario({ claves: lista, red: modo, hora }) {
   const [lineas, setLineas] = useState(null);
   useEffect(() => {
     let activo = true;
     cargarRed()
       .then((red) => {
-        const claves = new Set(andenes.map((a) => `m${a}`));
+        const claves = new Set(lista);
         const vistas = new Map();
         for (const p of red.patrones) {
-          if (p.red !== "metro") continue;
+          if (p.red !== modo) continue;
           const i = p.p.findIndex((c) => claves.has(c));
           if (i < 0 || i === p.p.length - 1) continue; // en la última estación no se sube
           const k = `${p.linea}|${p.destino}`;
           if (!vistas.has(k)) vistas.set(k, { linea: p.linea, destino: p.destino, cada: p.cada });
         }
-        if (activo) setLineas([...vistas.values()].sort((a, b) => a.linea.localeCompare(b.linea, "es", { numeric: true })));
+        // Fuera los servicios sueltos (cada 90 min o más) si la línea tiene otros; «Madrid-Chamartín» → «Chamartín»
+        const todas = [...vistas.values()].map((l) => ({ ...l, destino: l.destino.replace(/^Madrid[\s-]+/i, "") }));
+        const frecuente = new Set(todas.filter((l) => l.cada < 90).map((l) => l.linea));
+        const utiles = todas.filter((l) => l.cada < 90 || !frecuente.has(l.linea));
+        if (activo) setLineas(utiles.sort((a, b) => a.linea.localeCompare(b.linea, "es", { numeric: true })));
       })
       .catch(() => activo && setLineas([]));
     return () => {
       activo = false;
     };
-  }, [andenes.join(",")]);
+  }, [lista.join(",")]);
   if (!lineas?.length) return null;
-  if (hora >= 1.5 && hora < 6)
+  const metro = modo === "metro";
+  if (metro ? hora >= 1.5 && hora < 6 : hora >= 0.25 && hora < 5.5)
     return (
       <Tarjeta className="p-4">
-        <p className="text-[16px] text-tinta">El Metro está cerrado ahora. Abre a las 6:00.</p>
+        <p className="text-[16px] text-tinta">{metro ? "El Metro está cerrado ahora. Abre a las 6:00." : "Cercanías no circula ahora. Empieza hacia las 5:30."}</p>
       </Tarjeta>
     );
   return (
     <Tarjeta className="space-y-2 p-4">
-      <p className="text-[15px] text-tinta-2">Ahora no tenemos los minutos del Metro en directo. Según el horario oficial:</p>
+      <p className="text-[15px] text-tinta-2">
+        {metro ? "Ahora no tenemos los minutos del Metro en directo." : "Cercanías no da los minutos en directo."} Según el horario oficial:
+      </p>
       <ul className="space-y-2">
         {lineas.map((l) => (
           <li key={`${l.linea}${l.destino}`} className="flex items-center gap-3">
-            <Linea linea={l.linea} red="metro" grande />
+            <Linea linea={l.linea} red={modo} grande />
             <span className="text-[16px] text-tinta">
               → {l.destino} · <span className="font-bold">cada {l.cada} min</span>
             </span>
@@ -87,6 +94,7 @@ function clavesDeParada(parada, red) {
   }
   if (parada.red === "interurbano" && parada.codigo) return [`i${parada.codigo}`];
   if (parada.red === "renfe") {
+    if (parada.claves?.length) return parada.claves;
     // la más cercana de Cercanías con ese nombre (las estaciones de Renfe se llaman «Vicálvaro», «Madrid-Atocha»…)
     const nombre = normalizar(parada.nombre);
     return [...red.paradas.values()].filter((p) => p.red === "renfe" && normalizar(p.nombre).includes(nombre)).map((p) => p.clave).slice(0, 2);
@@ -94,7 +102,30 @@ function clavesDeParada(parada, red) {
   return [];
 }
 
-function Minimapa({ parada }) {
+// Líneas ocultas por parada (solo se guardan las de paradas favoritas)
+function leerOcultas() {
+  try {
+    return JSON.parse(localStorage.getItem("lineas_ocultas") || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+function ocultasGuardadas(id) {
+  const v = leerOcultas()[id];
+  return Array.isArray(v) ? v : [];
+}
+function guardarOcultas(id, lista) {
+  try {
+    const todo = leerOcultas();
+    if (lista.length) todo[id] = lista;
+    else delete todo[id];
+    localStorage.setItem("lineas_ocultas", JSON.stringify(todo));
+  } catch {
+    // sin almacenamiento: la selección dura lo que la visita
+  }
+}
+
+function Minimapa({ parada, ocultas = [] }) {
   const caja = useRef(null);
   const { lat, lon } = parada;
   useEffect(() => {
@@ -118,6 +149,9 @@ function Minimapa({ parada }) {
       .then(([red, formas]) => {
         if (!vivo) return;
         const claves = new Set(clavesDeParada(parada, red));
+        if (["metro", "renfe"].includes(parada.red))
+          for (const q of red.paradas.values())
+            if ((q.red === "metro" || q.red === "renfe") && q.red !== parada.red && distanciaM(q, parada) < 250) claves.add(q.clave);
         if (!claves.size) return;
         const trozos = [];
         const vistos = new Set();
@@ -125,7 +159,7 @@ function Minimapa({ parada }) {
           const i = p.p.findIndex((c) => claves.has(c));
           if (i < 0 || i === p.p.length - 1) return;
           const k = `${p.red}${p.linea}${p.p[i + 1]}`; // una vez por línea y sentido
-          if (vistos.has(k)) return;
+          if (vistos.has(k) || (p.red === parada.red && ocultas.includes(p.linea))) return;
           vistos.add(k);
           const aqui = red.paradas.get(p.p[i]);
           const siguiente = red.paradas.get(p.p[i + 1]);
@@ -174,7 +208,7 @@ function Minimapa({ parada }) {
       mapa.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, parada.id]);
+  }, [lat, lon, parada.id, ocultas.join(",")]);
   return <div ref={caja} className="mapa-yavoy pegatina h-[180px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la parada y de las líneas que pasan por ella" />;
 }
 
@@ -499,6 +533,19 @@ export default function Parada({
   // Metro: orden fijo por número de línea, para que las tarjetas no salten cada 15 s mientras eliges sentido
   if (parada.red === "metro") porLinea.sort((x, y) => x.linea.localeCompare(y.linea, "es", { numeric: true }));
 
+  // Líneas ocultas: se tocan en la fila de líneas. En una favorita se recuerdan (localStorage «lineas_ocultas»).
+  const [sel, setSel] = useState(() => ({ id: parada.id, ocultas: ocultasGuardadas(parada.id) }));
+  const ocultas = sel.id === parada.id ? sel.ocultas : ocultasGuardadas(parada.id);
+  const alternarLinea = (l) => setSel({ id: parada.id, ocultas: ocultas.includes(l) ? ocultas.filter((x) => x !== l) : [...ocultas, l] });
+  useEffect(() => {
+    if (sel.id !== parada.id) return;
+    guardarOcultas(parada.id, favorita ? sel.ocultas : []);
+  }, [sel, favorita, parada.id]);
+  const todasLineas = [...new Set([...porLinea.map((g) => g.linea), ...(parada.lineas ?? [])])].sort((a, b) =>
+    a.localeCompare(b, "es", { numeric: true }),
+  );
+  const visibles = porLinea.filter((g) => !ocultas.includes(g.linea));
+
   return (
     <div className="space-y-4">
       <div>
@@ -526,14 +573,40 @@ export default function Parada({
             <IconoEstrella llena={favorita} />
           </button>
         </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {(porLinea.length ? porLinea.map((g) => g.linea) : parada.lineas ?? []).map((l) => (
-            <Linea key={l} linea={l} red={parada.red} />
-          ))}
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Líneas: toca una para ocultarla o enseñarla">
+          {todasLineas.map((l) => {
+            const oculta = ocultas.includes(l);
+            return (
+              <button
+                key={l}
+                onClick={() => alternarLinea(l)}
+                aria-pressed={!oculta}
+                aria-label={`${oculta ? "Enseñar" : "Ocultar"} la línea ${l}`}
+                className={`rounded-lg transition-opacity ${oculta ? "opacity-30 grayscale" : ""}`}
+              >
+                <Linea linea={l} red={parada.red} />
+              </button>
+            );
+          })}
         </div>
+        {todasLineas.length > 1 && (
+          <p className="mt-1.5 text-[13px] text-suave">
+            {ocultas.length ? (
+              <>
+                {ocultas.length === 1 ? "1 línea oculta" : `${ocultas.length} líneas ocultas`}
+                {favorita ? " · se recuerda en favoritas" : " · guarda la parada en ★ para recordarlo"} ·{" "}
+                <button onClick={() => setSel({ id: parada.id, ocultas: [] })} className="font-bold text-principal underline">
+                  Ver todas
+                </button>
+              </>
+            ) : (
+              "Toca una línea para ocultarla"
+            )}
+          </p>
+        )}
       </div>
 
-      {parada.lat != null && parada.lon != null && <Minimapa parada={parada} />}
+      {parada.lat != null && parada.lon != null && <Minimapa parada={parada} ocultas={ocultas} />}
 
       {!parada.vivo && enDirecto() && !cargando && !error && (
         <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[15px] text-[#111]">
@@ -552,7 +625,7 @@ export default function Parada({
         <ParadaCargando />
       ) : (
         <>
-          {porLinea.map((g, i) => (parada.red === "metro" ? (
+          {visibles.map((g, i) => (parada.red === "metro" ? (
             <TarjetaSentidos
               key={g.linea}
               linea={g.linea}
@@ -588,8 +661,11 @@ export default function Parada({
               fuente={parada.vivo ? ({ metro: "el Metro", interurbano: "el Consorcio" }[parada.red] ?? "la EMT") : "la app"}
             />
           )))}
-          {porLinea.length === 0 && parada.red === "metro" && parada.andenes && <FrecuenciasMetro andenes={parada.andenes} hora={contexto.hora} />}
-          {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && (
+          {porLinea.length === 0 && parada.red === "metro" && parada.andenes && (
+            <FrecuenciasHorario claves={parada.andenes.map((a) => `m${a}`)} red="metro" hora={contexto.hora} />
+          )}
+          {porLinea.length === 0 && parada.red === "renfe" && parada.claves && <FrecuenciasHorario claves={parada.claves} red="renfe" hora={contexto.hora} />}
+          {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && !(parada.red === "renfe" && parada.claves) && (
             <Tarjeta className="p-4">
               <p className="text-[16px] text-tinta">
                 {parada.red === "metro"
@@ -604,7 +680,9 @@ export default function Parada({
           )}
           <p className="text-[13px] text-suave">
             {parada.vivo
-              ? parada.red === "metro" && parada.sinDirecto
+              ? parada.red === "renfe"
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial de Renfe Cercanías`
+                : parada.red === "metro" && parada.sinDirecto
                 ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial del Metro · Fuente: Consorcio Regional de Transportes de Madrid`
                 : parada.red === "metro" || parada.red === "interurbano"
                 ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Consorcio, se actualizan cada 15 s${parada.red === "metro" ? "" : " · ventanas medidas"} · Fuente: Consorcio Regional de Transportes de Madrid`

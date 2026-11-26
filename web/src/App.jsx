@@ -297,7 +297,7 @@ export default function App() {
       return l;
     });
     setParadaId(id);
-    setSeg((s) => ({ ...s, paradaId: id, modo: "parada" }));
+    // Mirar una parada no es coger nada: la franja solo sale al elegir «¿Dónde te bajas?»
     setPantalla("parada");
   }
 
@@ -317,7 +317,9 @@ export default function App() {
   // Datos que pinta la franja de seguimiento
   const franja = useMemo(() => {
     if (!demo) return null;
-    const hayParada = paradaSeguida && llegadasSeguidas.length > 0;
+    // Solo la línea en la que vas (la de «¿Dónde te bajas?»)
+    const seguidas = bajada ? llegadasSeguidas.filter((l) => l.linea === bajada.linea) : llegadasSeguidas;
+    const hayParada = paradaSeguida && seguidas.length > 0;
     if (!hayParada && !seg.destino) return null;
 
     let destino = null;
@@ -339,7 +341,7 @@ export default function App() {
     // Sin parada seguida solo se puede enseñar el modo destino
     if (!hayParada) return { modo: "destino", destino, linea: destino.linea };
 
-    const [primera, segunda] = llegadasSeguidas;
+    const [primera, segunda] = seguidas;
     let siguienteTexto = "No hay otro anunciado todavía";
     if (segunda?.v) siguienteTexto = `El siguiente sale en ${rangoCorto(segunda.v, segunda.minutos)}`;
     // PENDIENTE: el manual no define el texto si hay segunda llegada pero sin ventana; se deja vacío
@@ -356,7 +358,7 @@ export default function App() {
       siguienteTexto,
       destino,
     };
-  }, [demo, paradaSeguida, llegadasSeguidas, seg, transcurrido]);
+  }, [demo, paradaSeguida, llegadasSeguidas, seg, transcurrido, bajada]);
 
   // ¿Ha llegado? Cuando el vehículo que sigues está llegando (≤ 1 min) o desaparece tras anunciarse a ≤ 3 min,
   // se pregunta si ya vas dentro, para tener esa certeza en vez de suponerla.
@@ -438,14 +440,17 @@ export default function App() {
               avisos={demo.avisos_simulados ?? []}
               incidencias={demo.incidencias ?? []}
               bajada={bajada}
-              onBajada={setBajada}
+              onBajada={(b) => {
+                setBajada(b);
+                setSeg((s) => ({ ...s, paradaId: b ? paradaId : null, modo: "parada" }));
+              }}
               onFavorita={() => alternarFavorita(parada.id)}
               onVolver={() => setPantalla("paradas")}
               onInfoLinea={(l) => {
                 setLineaSel(l);
                 setPantalla("linea");
               }}
-              cargando={(!datos && !error) || (parada.directa && !directo[parada.id] && enDirecto())}
+              cargando={(!datos && !error) || (parada.directa && consultaDirecto(parada) && !directo[parada.id] && enDirecto())}
               error={error}
               onReintentar={() => setIntento((n) => n + 1)}
             />

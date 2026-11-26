@@ -67,7 +67,7 @@ export function TarjetaLinea({ l, onAbrirParada }) {
               <li key={`${p.clave}${i}`}>
                 <button
                   onClick={() => onAbrirParada(p, l)}
-                  disabled={!["emt", "metro"].includes(l.red)} // interurbanos y Cercanías: de momento solo la lista
+                  disabled={!["emt", "metro", "renfe"].includes(l.red)} // interurbanos: de momento solo la lista
                   className="flex min-h-[44px] w-full items-center gap-3 rounded-lg px-1 text-left hover:bg-hundido disabled:hover:bg-transparent"
                 >
                   <span className="flex h-[26px] min-w-[26px] items-center justify-center rounded-full border-2 border-[#111] bg-hundido text-[12px] font-bold">
