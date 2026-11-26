@@ -288,6 +288,9 @@ input:focus-visible {
   background: #ffe15a;
   box-shadow: 0 0 0 6px rgb(35 53 245 / 0.25);
 }
+.subida-mapa {
+  z-index: 2;
+}
 .subida-mapa .bus-mapa-linea {
   min-width: 28px;
   height: 22px;

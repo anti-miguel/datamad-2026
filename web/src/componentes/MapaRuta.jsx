@@ -32,7 +32,9 @@ function sobreLinea(p, linea) {
       mejor = q;
     }
   }
-  return dmin < 2.5e-7 ? mejor : p; // a más de ~55 m se deja donde está: el trazado no es de esa parada
+  // El trazado es el de esa misma línea: se pega siempre salvo que esté lejísimos (~400 m, trazado equivocado).
+  // Las estaciones de Metro tienen la coordenada del centro de la estación, a veces a 100 m de la vía.
+  return dmin < 1.3e-5 ? mejor : p;
 }
 
 function elemento(html, clase = "") {
@@ -118,7 +120,8 @@ export default function MapaRuta({ opcion, desde, hasta, vivo = true }) {
         tramos.forEach((t, i) => {
           const sube = elemento(`<span class="bus-mapa-linea" style="background:${colorDeLinea(t.red, t.linea)}">${t.linea}</span>`, "subida-mapa");
           sube.title = `${i === 0 ? "Coges" : "Cambias al"} ${t.linea} en ${t.desde.nombre}`;
-          new maplibregl.Marker({ element: sube }).setLngLat(lonlat(t.camino[0])).addTo(map);
+          // encima del punto de subida (no tapada por la personita cuando ya estás en la parada)
+          new maplibregl.Marker({ element: sube, anchor: "bottom", offset: [0, -4] }).setLngLat(lonlat(t.camino[0])).addTo(map);
           new maplibregl.Marker({ element: elemento("", "nodo-mapa"), title: `Bajas en ${t.hasta.nombre}` }).setLngLat(lonlat(t.camino.at(-1))).addTo(map);
         });
         if (llegada) new maplibregl.Marker({ element: elemento("", "nodo-mapa nodo-destino"), title: "Tu destino" }).setLngLat(lonlat(llegada)).addTo(map);
