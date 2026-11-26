@@ -65,9 +65,9 @@ function FrecuenciasMetro({ andenes, hora }) {
 // Minimapa de la parada: dónde está y, encima, el trozo de recorrido de cada línea que pasa por ella
 // (unas paradas antes y bastantes después, hacia donde va), para ver por dónde sigue y no solo edificios.
 // Recorridos de los horarios oficiales de la EMT y del Metro (datos/red.json); Cercanías e interurbanos aún no.
-const ANTES = 1;
+const ANTES = 0; // solo hacia donde va: el tramo de llegada duplicaba rayas
 const DESPUES = 3;
-const ZOOM_PARADA = 17; // cerca: se ve en qué acera está la parada y hacia dónde va
+const ZOOM_PARADA = 18; // cerca: se ve en qué acera está la parada y hacia dónde va
 
 // Rumbo en grados (0 = norte) de a hacia b, para girar la flecha del sentido
 function rumbo([la1, lo1], [la2, lo2]) {
@@ -129,17 +129,17 @@ function Minimapa({ parada }) {
           trozos.push({ camino, color: colorDeLinea(p.red, p.linea), desde: [aqui.lat, aqui.lon], hacia: [siguiente.lat, siguiente.lon] });
         }
         if (!trozos.length) return;
-        for (const t of trozos) L.polyline(t.camino, { color: "#111111", weight: 7, opacity: 0.9, interactive: false }).addTo(mapa);
-        for (const t of trozos) L.polyline(t.camino, { color: t.color, weight: 4, opacity: 1, interactive: false }).addTo(mapa);
+        for (const t of trozos) L.polyline(t.camino, { color: "#111111", weight: 5.5, opacity: 0.85, interactive: false }).addTo(mapa);
+        for (const t of trozos) L.polyline(t.camino, { color: t.color, weight: 3, opacity: 1, interactive: false }).addTo(mapa);
         // flecha del sentido: un poco después de la parada, girada hacia la siguiente
         const direcciones = new Set(); // una flecha por dirección, aunque pasen varias líneas
         for (const t of trozos) {
           const sector = Math.round(rumbo(t.desde, t.hacia) / 30);
           if (direcciones.has(sector)) continue;
           direcciones.add(sector);
-          // a unos 50 m de la parada (o a un tercio, si la siguiente está muy cerca), para que se vea con el zoom cercano
+          // a unos 30 m de la parada (o a un tercio, si la siguiente está muy cerca), para que se vea con el zoom cercano
           const metros = Math.hypot((t.hacia[0] - t.desde[0]) * 111000, (t.hacia[1] - t.desde[1]) * 85000) || 1;
-          const f = Math.min(0.35, 50 / metros);
+          const f = Math.min(0.35, 30 / metros); // a ~30 m, que con zoom 18 cae cerca de la parada
           const pos = [t.desde[0] + (t.hacia[0] - t.desde[0]) * f, t.desde[1] + (t.hacia[1] - t.desde[1]) * f];
           const icono = L.divIcon({
             className: "",
