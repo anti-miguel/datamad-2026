@@ -103,7 +103,7 @@ function TramoDibujado({ recorrido, fin, incidencias, subida }) {
   );
 }
 
-function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado }) {
+function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado, fuente = "la app" }) {
   const [a, b] = llegadas;
   const [destinoSel, setDestinoSel] = useState(bajada?.linea === linea ? bajada.codigo : "");
   const parada = recorrido?.find((p) => p.codigo === destinoSel);
@@ -131,20 +131,24 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
           </button>
         </div>
 
-        <p className="mt-3 text-[15px] text-suave">La app oficial dice {a.minutos} min</p>
-        <p className={`cifra mt-1 tabular-nums ${primera ? "text-[32px]" : "text-[26px]"}`}>{ventanaTexto(a)}</p>
+        {/* Si abajo ya sale el minuto exacto, no se repite */}
+        {!(a.v && ventanaEstrecha(a.v)) && (
+          <p className="mt-3 text-[15px] text-suave">
+            {fuente === "la app" ? "La app oficial" : fuente.charAt(0).toUpperCase() + fuente.slice(1)} dice {a.minutos} min
+          </p>
+        )}
+        <p className={`cifra tabular-nums ${a.v && ventanaEstrecha(a.v) ? "mt-3" : "mt-1"} ${primera ? "text-[32px]" : "text-[26px]"}`}>{ventanaTexto(a)}</p>
 
         {a.v && (
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
             <Etiqueta p={a.r.p} relleno />
-            <span className="text-[15px] text-tinta">Si a los {a.v.hasta} min no ha llegado, algo pasa.</span>
           </div>
         )}
         {a.r && !["linea", "parada"].includes(a.r.nivel) && <p className="mt-2 text-[14px] text-suave">Estimación general de la red</p>}
 
         {b && (
           <p className="mt-3 rounded-lg bg-hundido px-3 py-2 text-[15px] text-tinta-2">
-            El siguiente: <span className="font-bold text-tinta">{b.v ? (ventanaEstrecha(b.v) ? `en ${b.minutos} min` : `entre ${b.v.desde} y ${b.v.hasta} min`) : `${b.minutos} min según la app`}</span>
+            El siguiente: <span className="font-bold text-tinta">{b.v ? (ventanaEstrecha(b.v) ? `en ${b.minutos} min` : `entre ${b.v.desde} y ${b.v.hasta} min`) : `${b.minutos} min según ${fuente}`}</span>
           </p>
         )}
       </div>
@@ -346,6 +350,7 @@ export default function Parada({
               incidencias={incidencias}
               subida={parada.nombre}
               aproximado={parada.recorrido_aproximado}
+              fuente={parada.vivo ? (parada.red === "metro" ? "el Metro" : "la EMT") : "la app"}
             />
           ))}
           {porLinea.length === 0 && (

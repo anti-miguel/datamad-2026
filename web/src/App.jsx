@@ -1,6 +1,6 @@
 // Navegación entre pantallas, carga de datos y estado del seguimiento.
 // Una sola página: cada pantalla se muestra u oculta sin recargar (sección 1.1).
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BarraInferior from "./componentes/BarraInferior.jsx";
 import FranjaSeguimiento from "./componentes/FranjaSeguimiento.jsx";
 import Paradas from "./pantallas/Paradas.jsx";
@@ -329,6 +329,32 @@ export default function App() {
     };
   }, [demo, paradaSeguida, llegadasSeguidas, seg, transcurrido]);
 
+  // ¿Ha llegado? Cuando el vehículo que sigues está llegando (≤ 1 min) o desaparece tras anunciarse a ≤ 3 min,
+  // se pregunta si ya vas dentro, para tener esa certeza en vez de suponerla.
+  const [viaje, setViaje] = useState(null); // { linea, estado: "preguntar" | "dentro" | "no", desde }
+  const anterior = useRef(null);
+  useEffect(() => {
+    setViaje(null);
+    anterior.current = null;
+  }, [seg.paradaId]);
+  const primeraSeguida = franja?.modo === "parada" ? { linea: franja.linea, minutos: franja.minutos } : null;
+  const claveSeguida = primeraSeguida ? `${primeraSeguida.linea}|${primeraSeguida.minutos}` : "";
+  useEffect(() => {
+    if (!primeraSeguida) return;
+    const antes = anterior.current;
+    anterior.current = primeraSeguida;
+    const llegando = primeraSeguida.minutos <= 1;
+    const haPasado = antes && antes.minutos <= 3 && (antes.linea !== primeraSeguida.linea || primeraSeguida.minutos >= antes.minutos + 4);
+    if (!llegando && !haPasado) return;
+    const linea = llegando ? primeraSeguida.linea : antes.linea;
+    setViaje((v) => {
+      if (v?.estado === "dentro" || v?.estado === "preguntar") return v;
+      if (v?.estado === "no" && Date.now() - v.desde < 120000) return v;
+      return { linea, estado: "preguntar", desde: Date.now() };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveSeguida]);
+
   const conFranja = franja && ["paradas", "parada", "salgo"].includes(pantalla);
   const activo = { parada: "paradas", linea: "paradas", prometido: "paradas", ruta: "rutas", salgo: "rutas" }[pantalla] ?? pantalla;
 
@@ -479,6 +505,8 @@ export default function App() {
             seg={franja}
             onAbrir={() => (paradaSeguida ? abrirParada(paradaSeguida.id) : setPantalla("salgo"))}
             bajada={bajada}
+            viaje={viaje}
+            onResponder={(estado) => setViaje((v) => (v ? { ...v, estado, desde: Date.now() } : v))}
             onCambiarModo={() =>
               setSeg((s) => {
                 // Sin parada seguida no hay modo «hasta tu parada» al que volver

@@ -61,17 +61,39 @@ function PuntoFinal() {
   );
 }
 
-export default function FranjaSeguimiento({ seg, onAbrir, onCambiarModo, bajada }) {
+// Pregunta si el vehículo ya ha llegado. Los botones no abren la parada (la franja entera sí).
+function PreguntaLlegada({ linea, onResponder }) {
+  const parar = (e) => e.stopPropagation();
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2" onClick={parar} onKeyDown={parar}>
+      <span className="text-[15px] font-bold text-tinta">¿Ha llegado el {linea}?</span>
+      <button
+        onClick={() => onResponder("dentro")}
+        className="boton-pegatina min-h-[40px] rounded-xl bg-verde px-3 text-[15px] font-bold text-white"
+      >
+        Sí, voy dentro
+      </button>
+      <button onClick={() => onResponder("no")} className="boton-pegatina min-h-[40px] rounded-xl bg-tarjeta px-3 text-[15px] font-bold">
+        Todavía no
+      </button>
+    </div>
+  );
+}
+
+export default function FranjaSeguimiento({ seg, onAbrir, onCambiarModo, bajada, viaje = null, onResponder = () => {} }) {
+  const dentro = seg.modo === "parada" && viaje?.estado === "dentro";
   const destinoPos = seg.modo === "parada" ? seg.posicion : seg.destino ? seg.destino.posicion : 4;
   const pos = usePosicionAnimada(destinoPos);
 
-  const textoIzquierdo =
-    seg.modo === "parada"
+  const textoIzquierdo = dentro
+    ? `Vas en el ${viaje.linea}`
+    : seg.modo === "parada"
       ? `Siguiendo el ${seg.linea} · hasta tu parada`
       : `Siguiendo el ${seg.destino ? seg.destino.linea : seg.linea} · hasta tu destino`;
 
   let textoDerecho = null;
-  if (seg.modo === "parada") {
+  if (dentro) textoDerecho = "Dentro";
+  else if (seg.modo === "parada") {
     if (seg.minutos <= 1) textoDerecho = "Llegando";
     else if (seg.v) textoDerecho = rangoCorto(seg.v, seg.minutos);
     // PENDIENTE: el manual no dice qué poner a la derecha si no hay ventana; se deja vacío
@@ -112,6 +134,14 @@ export default function FranjaSeguimiento({ seg, onAbrir, onCambiarModo, bajada 
 
       {seg.modo === "destino" && !seg.destino ? (
         <p className="py-3 text-[14px] text-suave">Elige a dónde vas para seguir el viaje hasta tu destino.</p>
+      ) : seg.modo === "parada" && viaje?.estado === "preguntar" ? (
+        <PreguntaLlegada linea={viaje.linea} onResponder={onResponder} />
+      ) : dentro ? (
+        <p className="py-2 text-[14px] text-tinta">
+          {bajada && bajada.linea === viaje.linea
+            ? `Te avisamos una parada antes de ${bajada.nombre}.`
+            : "Buen viaje. Dinos dónde te bajas en la parada para avisarte antes."}
+        </p>
       ) : seg.modo === "parada" ? (
         <>
           <Recorrido pos={pos} etiqueta={etiqueta} tipo={seg.icono}>
