@@ -168,6 +168,11 @@ input:focus-visible {
   opacity: 0.55;
   mix-blend-mode: multiply;
 }
+.mapa-yavoy.mapa-carto .leaflet-tile-pane {
+  filter: sepia(0.15) hue-rotate(190deg) saturate(1.3);
+  opacity: 1;
+  mix-blend-mode: normal;
+}
 .mapa-yavoy .leaflet-control-zoom a {
   border-color: #111;
   color: #111;

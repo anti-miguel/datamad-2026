@@ -7,6 +7,7 @@ import {
 } from "../componentes/Iconos.jsx";
 import { calcularRuta, cadenaDeLineas, horaDeSalida, salirEn } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
+import { Paso, Hito } from "../componentes/Pasos.jsx";
 import { ventanaEstrecha } from "../lib/util.js";
 import { OpcionesPlan, SelectorPunto } from "../componentes/Planificador.jsx";
 import Vagones from "../componentes/Vagones.jsx";
@@ -296,38 +297,6 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
 }
 
 // ───────────────────────── Detalle de una ruta ─────────────────────────
-
-function Paso({ color, children, punteado = false }) {
-  return (
-    <div className="relative flex gap-3">
-      <div className="flex w-[28px] shrink-0 flex-col items-center">
-        <div
-          className="min-h-[24px] w-[6px] flex-1"
-          style={
-            punteado
-              ? { backgroundImage: "radial-gradient(#111 1.6px, transparent 1.8px)", backgroundSize: "6px 9px", backgroundRepeat: "repeat-y" }
-              : { background: color, border: "2px solid #111", borderRadius: 4 }
-          }
-        />
-      </div>
-      <div className="min-w-0 flex-1 pb-3">{children}</div>
-    </div>
-  );
-}
-
-function Hito({ texto, sub, final = false }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex w-[28px] justify-center">
-        <div className={`h-[20px] w-[20px] rounded-full border-[3px] border-[#111] ${final ? "bg-amarillo" : "bg-tarjeta"}`} />
-      </div>
-      <div>
-        <p className="text-[17px] font-bold text-tinta">{texto}</p>
-        {sub && <p className="text-[14px] text-suave">{sub}</p>}
-      </div>
-    </div>
-  );
-}
 
 const COLOR_TRAMO = { emt: "#2335F5", interurbano: "#3F8F1E", renfe: "#C8102E" };
 const COLOR_METRO = { 1: "#38A3DC", 2: "#E2231A", 5: "#9BBF2B", 6: "#9AA0A6", 9: "#A3268E" };

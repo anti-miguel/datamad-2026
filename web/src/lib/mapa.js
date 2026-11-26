@@ -1,9 +1,22 @@
-// Fondo de mapa de la app: OpenStreetMap apagado (gris, poco contraste y teñido con el lila de la app por CSS,
-// .mapa-yavoy en index.css) para que las calles orienten sin competir con la ruta y los autobuses.
-// CARTO Positron pide clave desde 2026 (sale «API KEY REQUIRED»), así que no se usa.
+// Fondo de mapa de la app.
+// - Con clave de CARTO (VITE_CARTO_KEY en web/.env.local, que no se sube al repo): Positron, casi blanco y con
+//   pocas etiquetas, teñido un poco con el lila de la app (.mapa-carto en index.css).
+// - Sin clave: OpenStreetMap apagado (gris, poco contraste y lila) para que las calles no compitan con la ruta.
+// Desde el 25/09/2026 CARTO no sirve sus mapas raster sin clave (sale «API KEY REQUIRED»).
+// La clave se pide gratis en carto.com/basemaps/apikey y conviene limitarla al dominio donde se publica la web.
 import L from "leaflet";
 
+const CLAVE_CARTO = import.meta.env?.VITE_CARTO_KEY;
+
 export function fondoMapa(mapa) {
+  if (CLAVE_CARTO) {
+    mapa.getContainer().classList.add("mapa-carto");
+    return L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CLAVE_CARTO)}`, {
+      subdomains: "abcd",
+      maxZoom: 20,
+      attribution: "© OpenStreetMap contributors, © CARTO",
+    }).addTo(mapa);
+  }
   return L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: "© OpenStreetMap",

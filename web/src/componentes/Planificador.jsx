@@ -1,8 +1,9 @@
 // Planificador de rutas desde cualquier sitio: elegir un punto (ubicación, sitio de la demo, parada, estación o dirección)
 // y ver las opciones con la red de la EMT y el Metro (lib/planificador.js). El primer autobús va con los minutos en directo.
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Linea, Etiqueta, Tarjeta, IconoRed } from "./Comunes.jsx";
-import { IconoAndar, IconoPin } from "./Iconos.jsx";
+import { Linea, Etiqueta, Tarjeta, IconoRed, colorDeLinea } from "./Comunes.jsx";
+import { Paso, Hito } from "./Pasos.jsx";
+import { IconoAndar, IconoPin, IconoTransbordo, IconoCampana } from "./Iconos.jsx";
 import { normalizar, calcularLlegada, ventanaEstrecha } from "../lib/util.js";
 import { cargarRed, planificar } from "../lib/planificador.js";
 import { consultar } from "../lib/consultar.js";
@@ -198,6 +199,141 @@ function Cadena({ tramos }) {
   );
 }
 
+// Cuándo pasa el vehículo de un tramo, para la tarjeta amarilla de los pasos.
+// EMT: minutos en directo (el primero que da tiempo a coger) con la ventana medida. Metro: cada cuánto pasa.
+function EsperaTramo({ t, llegasEn, datos, contexto }) {
+  const [vivo, setVivo] = useState(null);
+  const numero = t.red === "emt" ? t.desde.clave.slice(1) : null;
+  useEffect(() => {
+    if (!numero || !enDirecto()) return;
+    let activo = true;
+    llegadasEmt(numero)
+      .then((d) => activo && setVivo(d.llegadas.filter((l) => String(l.linea) === String(t.linea))))
+      .catch(() => activo && setVivo("error"));
+    return () => {
+      activo = false;
+    };
+  }, [numero, t.linea]);
+  const llega = Array.isArray(vivo) ? vivo.find((l) => l.minutos >= llegasEn) ?? null : null;
+  const c = llega && datos ? calcularLlegada(datos, { red: "emt", tipo: "intermedia" }, { linea: t.linea, minutos: Math.max(1, llega.minutos) }, contexto) : null;
+  const titulo = llega
+    ? c?.v && !ventanaEstrecha(c.v)
+      ? `Pasa entre ${c.v.desde} y ${c.v.hasta} min`
+      : `Pasa en ${llega.minutos} min`
+    : `Pasa cada ${t.cada} min`;
+  return (
+    <div className="pegatina flex w-full items-start gap-3 rounded-xl bg-amarillo px-3 py-2.5 text-[#111]">
+      <span className="pt-0.5">
+        <Linea linea={t.linea} red={t.red} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[17px] font-bold leading-snug">{titulo}</span>
+        <span className="mt-0.5 block text-[14px] text-tinta-2">
+          Desde {t.desde.nombre}
+          {llega ? ` · la EMT dice ${llega.minutos} min` : t.red === "metro" ? " · horario oficial" : ""} · viaje {t.minutos} min
+        </span>
+        {c?.r && (
+          <span className="mt-1.5 flex flex-wrap items-center gap-2">
+            <Etiqueta p={c.r.p} />
+          </span>
+        )}
+        {Array.isArray(vivo) && !llega && (
+          <span className="mt-1 block text-[13px] text-tinta-2">Ahora la EMT no anuncia ningún {t.linea} que te dé tiempo a coger.</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+// Pasos de una opción, con el mismo dibujo que las rutas de la demo: hitos, tramos de color y tramos andando punteados
+function PasosRuta({ o, desde, hasta, datos, contexto, onAbrirParada }) {
+  const [avisos, setAvisos] = useState({});
+  const filas = [];
+  let reloj = 0; // minutos hasta llegar a cada parada (andando, esperando y viajando), para coger el autobús que da tiempo
+  let anterior = null; // último tramo en vehículo, para el transbordo
+  o.tramos.forEach((t, i) => {
+    if (t.tipo === "andar") {
+      reloj += t.minutos;
+      if (t.transbordo && anterior) return; // se pinta dentro del transbordo
+      if (i === o.tramos.length - 1 && t.minutos <= 0) return;
+      filas.push(
+        <Paso key={`a${i}`} punteado>
+          <div className="mt-2 flex items-center gap-2 rounded-xl bg-hundido px-3 py-2">
+            <IconoAndar />
+            <span className="text-[15px] font-bold text-tinta">{t.hasta === "tu destino" ? "Andando a tu destino" : `Andando a ${t.hasta}`}</span>
+            <span className="ml-auto shrink-0 text-[14px] text-tinta-2">{t.minutos} min</span>
+          </div>
+        </Paso>,
+      );
+      return;
+    }
+    const color = colorDeLinea(t.red, t.linea);
+    if (anterior) {
+      const andando = o.tramos[i - 1]?.tipo === "andar" && o.tramos[i - 1].transbordo ? o.tramos[i - 1].minutos : 0;
+      filas.push(<Hito key={`h${i}`} texto={anterior.red === "metro" ? `Metro ${anterior.hasta.nombre}` : anterior.hasta.nombre} />);
+      filas.push(
+        <Paso key={`t${i}`} punteado>
+          <div className="pegatina mt-2 flex items-center gap-2 rounded-xl bg-aviso-simulado px-3 py-2">
+            <IconoTransbordo />
+            <span className="text-[15px] font-bold text-tinta">
+              Transbordo en {anterior.hasta.nombre}: {anterior.red === t.red && t.red === "metro" ? `de la línea ${anterior.linea} a la ${t.linea}` : `del ${anterior.linea} al ${t.linea}`}
+            </span>
+            <span className="ml-auto shrink-0 text-[14px] text-tinta-2">{Math.max(1, andando)} min</span>
+          </div>
+        </Paso>,
+      );
+    }
+    const llegasEn = Math.round(reloj);
+    reloj += t.cada / 2 + t.minutos;
+    // después de un transbordo en la misma estación no se repite su nombre
+    if (!anterior || normalizar(anterior.hasta.nombre) !== normalizar(t.desde.nombre))
+      filas.push(<Hito key={`s${i}`} texto={t.red === "metro" ? `Metro ${t.desde.nombre}` : t.desde.nombre} />);
+    filas.push(
+      <Paso key={`v${i}`} color={color}>
+        <div className="space-y-2 pt-1">
+          <div className="flex items-center gap-2">
+            <Linea linea={t.linea} red={t.red} grande />
+            <span className="text-[16px] font-bold text-tinta">Dirección {t.destino}</span>
+          </div>
+          <EsperaTramo t={t} llegasEn={llegasEn} datos={datos} contexto={contexto} />
+          {t.entreMedias?.length > 0 && (
+            <details className="text-[14px] text-tinta-2">
+              <summary className="min-h-[36px] py-1.5">
+                {t.entreMedias.length} {t.entreMedias.length === 1 ? "parada" : "paradas"} entre medias
+              </summary>
+              <p>{t.entreMedias.join(" · ")}</p>
+            </details>
+          )}
+          {t.red === "emt" && (
+            <button onClick={() => onAbrirParada(t.desde)} className="min-h-[36px] text-[14px] font-bold text-principal underline underline-offset-2">
+              Ver la parada {t.desde.nombre}
+            </button>
+          )}
+          <button
+            onClick={() => setAvisos((a) => ({ ...a, [i]: !a[i] }))}
+            aria-pressed={!!avisos[i]}
+            className={`flex min-h-[44px] w-full items-center gap-2 text-left text-[14px] font-bold ${
+              avisos[i] ? "boton-pegatina rounded-xl bg-verde px-3 text-white" : "text-tinta-2"
+            }`}
+          >
+            <IconoCampana className="h-5 w-5 shrink-0" />
+            {avisos[i] ? `Te avisamos una parada antes de ${t.hasta.nombre}` : "Avisarme antes de bajar"}
+          </button>
+        </div>
+      </Paso>,
+    );
+    anterior = t;
+  });
+  if (anterior) filas.splice(filas.length - (o.tramos[o.tramos.length - 1]?.tipo === "andar" ? 1 : 0), 0, <Hito key="fin-v" texto={anterior.red === "metro" ? `Metro ${anterior.hasta.nombre}` : anterior.hasta.nombre} />);
+  return (
+    <div className="border-t-2 border-linea pt-3">
+      <Hito texto={desde?.nombre ?? "Salida"} sub="Salida" />
+      {filas}
+      <Hito texto={hasta?.nombre ?? "Llegada"} sub="Llegada" final />
+    </div>
+  );
+}
+
 function Opcion({ o, primera, datos, contexto, onAbrirParada, desde, hasta }) {
   const [abierta, setAbierta] = useState(false);
   const [mapa, setMapa] = useState(false);
@@ -256,29 +392,7 @@ function Opcion({ o, primera, datos, contexto, onAbrirParada, desde, hasta }) {
         </div>
       )}
       {mapa && <MapaRuta opcion={o} desde={desde} hasta={hasta} />}
-      {abierta && (
-        <ol className="space-y-1.5 border-t-2 border-linea pt-2 text-[14px] text-tinta-2">
-          {o.tramos.map((t, i) =>
-            t.tipo === "andar" ? (
-              <li key={i}>
-                {t.minutos} min andando {t.transbordo ? "para el cambio en" : "hasta"} {t.hasta}
-              </li>
-            ) : (
-              <li key={i}>
-                <span className="font-bold text-tinta">
-                  {t.red === "metro" ? "Metro" : "Bus"} {t.linea} → {t.destino}
-                </span>
-                : de {t.desde.nombre} a {t.hasta.nombre}, {t.paradas} {t.paradas === 1 ? "parada" : "paradas"}, pasa cada {t.cada} min
-                {t.red === "emt" && t === primero && (
-                  <button onClick={() => onAbrirParada(t.desde)} className="ml-1 font-bold text-principal underline underline-offset-2">
-                    ver parada
-                  </button>
-                )}
-              </li>
-            ),
-          )}
-        </ol>
-      )}
+      {abierta && <PasosRuta o={o} desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} />}
     </Tarjeta>
   );
 }
