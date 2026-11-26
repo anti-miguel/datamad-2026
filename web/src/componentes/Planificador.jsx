@@ -155,7 +155,7 @@ export function SelectorPunto({ etiqueta, valor, onCambiar, lugares = [] }) {
   );
 }
 
-// Minutos en directo del primer autobús y su ventana medida
+// Minutos en directo del primer autobús con su ventana medida, en corto: «pasa en 10–14 min · Fiable»
 function PrimerAutobus({ tramo, andarAntes, datos, contexto }) {
   const [vivo, setVivo] = useState(null);
   const numero = tramo.desde.clave.slice(1);
@@ -172,77 +172,100 @@ function PrimerAutobus({ tramo, andarAntes, datos, contexto }) {
   if (!Array.isArray(vivo)) return null;
   // el primero que da tiempo a coger andando
   const llega = vivo.find((l) => l.minutos >= andarAntes) ?? null;
-  if (!llega) return <p className="text-[14px] text-suave">Ahora la EMT no anuncia ningún {tramo.linea} que te dé tiempo a coger.</p>;
+  if (!llega) return <span className="text-suave">el {tramo.linea} no tiene llegada anunciada</span>;
   const c = datos ? calcularLlegada(datos, { red: "emt", tipo: "intermedia" }, { linea: tramo.linea, minutos: Math.max(1, llega.minutos) }, contexto) : null;
   return (
-    <p className="flex flex-wrap items-center gap-2 text-[15px] font-bold text-tinta">
-      En directo: pasa {c?.v ? (ventanaEstrecha(c.v) ? `en ${llega.minutos} min` : `entre ${c.v.desde} y ${c.v.hasta} min`) : `en ${llega.minutos} min según la EMT`}
+    <span className="inline-flex flex-wrap items-center gap-1.5 font-bold text-tinta">
+      el {tramo.linea} pasa {c?.v && !ventanaEstrecha(c.v) ? `en ${c.v.desde}–${c.v.hasta} min` : `en ${llega.minutos} min`}
       {c?.r && <Etiqueta p={c.r.p} />}
-    </p>
+    </span>
+  );
+}
+
+// Línea compacta del viaje: andar 1′ › [8] 1′ › [4] 9′ › andar 1′
+function Cadena({ tramos }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[14px] text-tinta-2">
+      {tramos.map((t, i) => (
+        <span key={i} className="inline-flex items-center gap-1">
+          {i > 0 && <span className="text-suave">›</span>}
+          {t.tipo === "andar" ? <IconoAndar className="h-4 w-4" /> : <Linea linea={t.linea} red={t.red} />}
+          <span className="tabular-nums">{t.minutos}′</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
 function Opcion({ o, primera, datos, contexto, onAbrirParada }) {
+  const [abierta, setAbierta] = useState(false);
   const viajes = o.tramos.filter((t) => t.tipo === "viaje");
-  const iPrimero = o.tramos.findIndex((t) => t.tipo === "viaje");
+  const primero = viajes[0];
   return (
-    <Tarjeta sombra={primera} className="space-y-3 p-4">
+    <Tarjeta sombra={primera} className="space-y-2 p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {viajes.length === 0 ? (
-            <span className="flex items-center gap-1 font-bold text-tinta">
-              <IconoAndar /> Andando
-            </span>
-          ) : (
-            viajes.map((t, i) => (
-              <span key={i} className="flex items-center gap-1.5">
-                {i > 0 && <span className="text-suave">›</span>}
-                <Linea linea={t.linea} red={t.red} />
-              </span>
-            ))
+        <div className="space-y-1">
+          {primera && (
+            <span className="inline-block rounded-md border-2 border-[#111] bg-amarillo px-2 text-[12px] font-bold text-[#111]">RECOMENDADA</span>
           )}
+          <Cadena tramos={o.tramos} />
         </div>
         <span className="shrink-0 text-right">
           <span className="cifra block text-[22px] text-principal">≈ {o.total} min</span>
-          {o.margen > 0 && <span className="block text-[13px] text-suave">si se tuerce: {o.peor} min</span>}
+          {o.margen > 0 && <span className="block text-[13px] text-suave">si se tuerce: {o.peor}</span>}
         </span>
       </div>
-      {primera && (
-        <p className="-mt-1 text-[13px] font-bold text-tinta-2">
-          Recomendada: la que menos se retrasa cuando las cosas van mal y la que menos cansa
-        </p>
-      )}
-      <ol className="space-y-1.5">
-        {o.tramos.map((t, i) =>
-          t.tipo === "andar" ? (
-            <li key={i} className="flex items-center gap-2 text-[14px] text-tinta-2">
-              <IconoAndar className="h-4 w-4 shrink-0" /> {t.minutos} min andando {t.transbordo ? "para cambiar a" : "hasta"} {t.hasta}
-            </li>
-          ) : (
-            <li key={i} className="space-y-1">
-              <p className="text-[15px] text-tinta">
-                <span className="font-bold">
-                  {t.red === "metro" ? "Metro" : "Bus"} {t.linea} dirección {t.destino}
-                </span>
-                <span className="block text-[14px] text-tinta-2">
-                  Subes en {t.desde.nombre} y bajas en {t.hasta.nombre} · {t.paradas} {t.paradas === 1 ? "parada" : "paradas"} · {t.minutos} min · pasa cada {t.cada} min
-                </span>
-              </p>
-              {i === iPrimero && t.red === "emt" && (
-                <>
-                  <PrimerAutobus tramo={t} andarAntes={o.tramos[0]?.tipo === "andar" ? o.tramos[0].minutos : 0} datos={datos} contexto={contexto} />
-                  <button
-                    onClick={() => onAbrirParada(t.desde)}
-                    className="text-[14px] font-bold text-principal underline underline-offset-2"
-                  >
-                    Ver la parada {t.desde.nombre}
-                  </button>
-                </>
-              )}
-            </li>
-          ),
+
+      <p className="text-[14px] text-tinta-2">
+        {primero ? (
+          <>
+            Subes en <span className="font-bold text-tinta">{primero.desde.nombre}</span>
+            {primero.red === "emt" && enDirecto() && (
+              <>
+                {" · "}
+                <PrimerAutobus tramo={primero} andarAntes={o.tramos[0]?.tipo === "andar" ? o.tramos[0].minutos : 0} datos={datos} contexto={contexto} />
+              </>
+            )}
+            {` · ${o.andado} min andando`}
+            {o.transbordos ? ` · ${o.transbordos} transbordo` : ""}
+          </>
+        ) : (
+          `${o.total} min andando`
         )}
-      </ol>
+      </p>
+
+      {viajes.length > 0 && (
+        <button
+          onClick={() => setAbierta((x) => !x)}
+          aria-expanded={abierta}
+          className="text-[14px] font-bold text-principal"
+        >
+          {abierta ? "Ocultar pasos ▴" : "Ver pasos ▾"}
+        </button>
+      )}
+      {abierta && (
+        <ol className="space-y-1.5 border-t-2 border-linea pt-2 text-[14px] text-tinta-2">
+          {o.tramos.map((t, i) =>
+            t.tipo === "andar" ? (
+              <li key={i}>
+                {t.minutos} min andando {t.transbordo ? "para el cambio en" : "hasta"} {t.hasta}
+              </li>
+            ) : (
+              <li key={i}>
+                <span className="font-bold text-tinta">
+                  {t.red === "metro" ? "Metro" : "Bus"} {t.linea} → {t.destino}
+                </span>
+                : de {t.desde.nombre} a {t.hasta.nombre}, {t.paradas} {t.paradas === 1 ? "parada" : "paradas"}, pasa cada {t.cada} min
+                {t.red === "emt" && t === primero && (
+                  <button onClick={() => onAbrirParada(t.desde)} className="ml-1 font-bold text-principal underline underline-offset-2">
+                    ver parada
+                  </button>
+                )}
+              </li>
+            ),
+          )}
+        </ol>
+      )}
     </Tarjeta>
   );
 }
@@ -291,7 +314,7 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada }) {
         <Opcion key={i} o={o} primera={i === 0} datos={datos} contexto={contexto} onAbrirParada={abrir} />
       ))}
       <p className="text-[13px] text-suave">
-        Calculado con los horarios oficiales de la EMT y del Metro (laborable). «Si se tuerce» suma lo que tarda de más cada línea 1 de cada 10 veces, según lo que hemos medido. Se ordena por eso y por lo que andas y transbordas. Esperas y tiempos andando aproximados; el primer autobús, en directo.
+        «Si se tuerce»: lo que tarda 1 de cada 10 veces, según lo que hemos medido. Primero, la que menos se retrasa y menos cansa.
       </p>
     </section>
   );
