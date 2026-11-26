@@ -1,6 +1,6 @@
 // Navegación entre pantallas, carga de datos y estado del seguimiento.
 // Una sola página: cada pantalla se muestra u oculta sin recargar (sección 1.1).
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BarraInferior from "./componentes/BarraInferior.jsx";
 import FranjaSeguimiento from "./componentes/FranjaSeguimiento.jsx";
 import Paradas from "./pantallas/Paradas.jsx";
@@ -14,7 +14,8 @@ import { ListaRutas, DetalleRuta } from "./pantallas/Rutas.jsx";
 import Login from "./pantallas/Login.jsx";
 import { AvisoAbono, leerAbono, guardarAbono } from "./componentes/Abono.jsx";
 import { posicionVehiculo } from "./lib/ventana.js";
-import { aMinutos, calcularLlegada, contextoActual, iconoDeRed, llegadasVivas } from "./lib/util.js";
+import { aMinutos, calcularLlegada, contextoActual, iconoDeRed, llegadasVivas, rangoCorto } from "./lib/util.js";
+import { cargarIndiceMetro, consultaDirecto, enDirecto, llegadasEmt, llegadasMetro, nombreBonito } from "./lib/emt.js";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -54,6 +55,24 @@ function leerNombres() {
   }
 }
 
+function leerLista(clave) {
+  try {
+    return JSON.parse(localStorage.getItem(clave)) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function guardarLista(clave, lista) {
+  try {
+    localStorage.setItem(clave, JSON.stringify(lista));
+  } catch {
+    // sin almacenamiento dura hasta recargar
+  }
+}
+
+const DIRECTO_CADA_MS = 15000;
+
 function guardarFavoritas(lista) {
   try {
     localStorage.setItem("favoritas", JSON.stringify(lista));
@@ -88,6 +107,11 @@ export default function App() {
   const [bajada, setBajada] = useState(null);
   const [sesion, setSesion] = useState(leerSesion);
   const [abono, setAbono] = useState(() => leerAbono());
+  // Paradas de la EMT abiertas desde «Cerca de ti» (no están en la demo) y las últimas consultadas
+  const [extra, setExtra] = useState(() => leerLista("paradas_extra").map((p) => ({ ...p, nombre: nombreBonito(p.nombre) })));
+  const [recientes, setRecientes] = useState(() => leerLista("recientes"));
+  // Llegadas en directo por parada: { "emt-4613": { llegadas, hora, error } }
+  const [directo, setDirecto] = useState({});
 
   function cambiarAbono(a) {
     guardarAbono(a);
@@ -165,14 +189,88 @@ export default function App() {
       .catch(() => setError(true));
   }, [intento]);
 
+  // Botón «atrás» del móvil: cada cambio de pantalla se apunta en el historial, así atrás vuelve a la anterior
+  // en vez de salir de la web (lo primero que hace mucha gente).
+  const desdeHistorial = useRef(false);
+  useEffect(() => {
+    const alVolver = (e) => {
+      const st = e.state;
+      if (!st?.pantalla) return;
+      desdeHistorial.current = true;
+      setPantalla(st.pantalla);
+      setParadaId(st.paradaId ?? null);
+      setRutaId(st.rutaId ?? null);
+    };
+    window.addEventListener("popstate", alVolver);
+    if (!history.state?.pantalla) history.replaceState({ pantalla: "paradas", paradaId: null, rutaId: null }, "");
+    return () => window.removeEventListener("popstate", alVolver);
+  }, []);
+  useEffect(() => {
+    if (desdeHistorial.current) {
+      desdeHistorial.current = false;
+      return;
+    }
+    const st = history.state;
+    if (st && st.pantalla === pantalla && st.paradaId === paradaId && st.rutaId === rutaId) return;
+    history.pushState({ pantalla, paradaId, rutaId }, "");
+  }, [pantalla, paradaId, rutaId]);
+
   // Cada vez que se cambia de pantalla, arriba del todo
   // (entre llaves: en navegadores nuevos scrollTo devuelve una promesa y React la tomaría por limpieza)
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pantalla, paradaId, rutaId]);
 
-  const parada = demo?.paradas.find((p) => p.id === paradaId) ?? null;
-  const paradaSeguida = demo?.paradas.find((p) => p.id === seg.paradaId) ?? null;
+  const todas = useMemo(
+    () => (demo ? [...demo.paradas, ...extra.filter((e) => !demo.paradas.some((p) => p.id === e.id))] : []),
+    [demo, extra],
+  );
+
+  // Con datos en directo, la parada usa las llegadas de la EMT en vez de los minutos de la demo
+  const conDirecto = useCallback(
+    (p) => {
+      if (!p) return null;
+      const d = directo[p.id];
+      if (d?.llegadas) return { ...p, llegadas: d.llegadas, vivo: true, horaDirecto: d.hora };
+      if (p.directa) return { ...p, llegadas: [], vivo: true, sinDirecto: Boolean(d?.error) };
+      return p;
+    },
+    [directo],
+  );
+
+  const parada = useMemo(() => conDirecto(todas.find((p) => p.id === paradaId)), [todas, paradaId, conDirecto]);
+  const paradaSeguida = useMemo(() => conDirecto(todas.find((p) => p.id === seg.paradaId)), [todas, seg.paradaId, conDirecto]);
+
+  // Consulta en directo (EMT o Metro) la parada abierta y la que se sigue en la franja
+  const aConsultar = JSON.stringify(
+    [...new Set([pantalla === "parada" ? paradaId : null, seg.paradaId])]
+      .map((id) => [id, consultaDirecto(todas.find((p) => p.id === id))])
+      .filter(([, c]) => c),
+  );
+  useEffect(() => {
+    const lista = JSON.parse(aConsultar);
+    if (!lista.length || !enDirecto()) return;
+    let activo = true;
+    const pedirUna = (c) =>
+      c.tipo === "emt"
+        ? llegadasEmt(c.numero)
+        : Promise.all([llegadasMetro(c.andenes), cargarIndiceMetro()]).then(([d, ix]) => ({
+            ...d,
+            llegadas: d.llegadas.map((l) => ({ ...l, destino: ix.nombres[l.destino] ? nombreBonito(ix.nombres[l.destino]) : l.destino })),
+          }));
+    const consultar = () =>
+      lista.forEach(([id, c]) =>
+        pedirUna(c)
+          .then((d) => activo && setDirecto((x) => ({ ...x, [id]: { llegadas: d.llegadas, hora: d.hora } })))
+          .catch(() => activo && setDirecto((x) => ({ ...x, [id]: { ...x[id], error: true } }))),
+      );
+    consultar();
+    const t = setInterval(consultar, DIRECTO_CADA_MS);
+    return () => {
+      activo = false;
+      clearInterval(t);
+    };
+  }, [aConsultar]);
 
   const calcular = useCallback(
     (p) => (datos ? llegadasVivas(p, transcurrido).map((l) => calcularLlegada(datos, p, l, contexto)) : []),
@@ -182,7 +280,19 @@ export default function App() {
   const llegadas = useMemo(() => (parada ? calcular(parada) : []), [parada, calcular]);
   const llegadasSeguidas = useMemo(() => (paradaSeguida ? calcular(paradaSeguida) : []), [paradaSeguida, calcular]);
 
-  function abrirParada(id) {
+  function abrirParada(id, nueva = null) {
+    if (nueva && !todas.some((p) => p.id === id)) {
+      setExtra((lista) => {
+        const l = [nueva, ...lista.filter((p) => p.id !== id)].slice(0, 30);
+        guardarLista("paradas_extra", l);
+        return l;
+      });
+    }
+    setRecientes((lista) => {
+      const l = [id, ...lista.filter((x) => x !== id)].slice(0, 5);
+      guardarLista("recientes", l);
+      return l;
+    });
     setParadaId(id);
     setSeg((s) => ({ ...s, paradaId: id, modo: "parada" }));
     setPantalla("parada");
@@ -228,7 +338,7 @@ export default function App() {
 
     const [primera, segunda] = llegadasSeguidas;
     let siguienteTexto = "No hay otro anunciado todavía";
-    if (segunda?.v) siguienteTexto = `El siguiente sale en ${segunda.v.desde}–${segunda.v.hasta} min`;
+    if (segunda?.v) siguienteTexto = `El siguiente sale en ${rangoCorto(segunda.v, segunda.minutos)}`;
     // PENDIENTE: el manual no define el texto si hay segunda llegada pero sin ventana; se deja vacío
     else if (segunda) siguienteTexto = "";
 
@@ -244,6 +354,32 @@ export default function App() {
       destino,
     };
   }, [demo, paradaSeguida, llegadasSeguidas, seg, transcurrido]);
+
+  // ¿Ha llegado? Cuando el vehículo que sigues está llegando (≤ 1 min) o desaparece tras anunciarse a ≤ 3 min,
+  // se pregunta si ya vas dentro, para tener esa certeza en vez de suponerla.
+  const [viaje, setViaje] = useState(null); // { linea, estado: "preguntar" | "dentro" | "no", desde }
+  const anterior = useRef(null);
+  useEffect(() => {
+    setViaje(null);
+    anterior.current = null;
+  }, [seg.paradaId]);
+  const primeraSeguida = franja?.modo === "parada" ? { linea: franja.linea, minutos: franja.minutos } : null;
+  const claveSeguida = primeraSeguida ? `${primeraSeguida.linea}|${primeraSeguida.minutos}` : "";
+  useEffect(() => {
+    if (!primeraSeguida) return;
+    const antes = anterior.current;
+    anterior.current = primeraSeguida;
+    const llegando = primeraSeguida.minutos <= 1;
+    const haPasado = antes && antes.minutos <= 3 && (antes.linea !== primeraSeguida.linea || primeraSeguida.minutos >= antes.minutos + 4);
+    if (!llegando && !haPasado) return;
+    const linea = llegando ? primeraSeguida.linea : antes.linea;
+    setViaje((v) => {
+      if (v?.estado === "dentro" || v?.estado === "preguntar") return v;
+      if (v?.estado === "no" && Date.now() - v.desde < 120000) return v;
+      return { linea, estado: "preguntar", desde: Date.now() };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveSeguida]);
 
   const conFranja = franja && ["paradas", "parada", "salgo"].includes(pantalla);
   const activo = { parada: "paradas", linea: "paradas", prometido: "paradas", ruta: "rutas", salgo: "rutas" }[pantalla] ?? pantalla;
@@ -276,6 +412,8 @@ export default function App() {
         <section id="pantalla-paradas" hidden={pantalla !== "paradas"}>
           <Paradas
             demo={demo}
+            todas={todas}
+            recientes={recientes}
             favoritas={favoritas}
             nombres={nombres}
             usuario={sesion.nombre}
@@ -304,7 +442,7 @@ export default function App() {
                 setLineaSel(l);
                 setPantalla("linea");
               }}
-              cargando={!datos && !error}
+              cargando={(!datos && !error) || (parada.directa && !directo[parada.id] && enDirecto())}
               error={error}
               onReintentar={() => setIntento((n) => n + 1)}
             />
@@ -330,6 +468,7 @@ export default function App() {
           <section id="pantalla-rutas">
             <ListaRutas
               demo={demo}
+              onAbrirParada={abrirParada}
               onCasoMedido={() => {
                 setSeg((s) => ({ ...s, destino: true, modo: "destino" }));
                 setPantalla("salgo");
@@ -393,6 +532,8 @@ export default function App() {
             seg={franja}
             onAbrir={() => (paradaSeguida ? abrirParada(paradaSeguida.id) : setPantalla("salgo"))}
             bajada={bajada}
+            viaje={viaje}
+            onResponder={(estado) => setViaje((v) => (v ? { ...v, estado, desde: Date.now() } : v))}
             onCambiarModo={() =>
               setSeg((s) => {
                 // Sin parada seguida no hay modo «hasta tu parada» al que volver

@@ -35,8 +35,16 @@ export default function Login({ onEntrar }) {
         <Logo alto={52} lema />
       </div>
 
-      <form onSubmit={entrar} className="pegatina-grande mt-8 space-y-4 rounded-2xl bg-tarjeta p-5" noValidate>
-        <h1 className="titulo text-[24px] text-tinta">Entra en tu cuenta</h1>
+      <button
+        type="button"
+        onClick={() => onEntrar({ correo: "Modo prueba, sin cuenta", nombre: "Invitado", invitado: true })}
+        className="boton-pegatina mt-8 min-h-[64px] w-full rounded-2xl bg-principal px-4 text-[20px] font-bold text-white"
+      >
+        Probar YaVoy
+        <span className="block text-[14px] font-normal">Sin cuenta y sin datos personales</span>
+      </button>
+      <form onSubmit={entrar} className="pegatina-grande mt-6 space-y-4 rounded-2xl bg-tarjeta p-5" noValidate>
+        <h1 className="titulo text-[22px] text-tinta">¿Tienes cuenta? Entra</h1>
 
         <label className="block">
           <span className="text-[15px] font-bold text-tinta">Correo</span>

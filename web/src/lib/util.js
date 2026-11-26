@@ -48,6 +48,16 @@ export function textoFranja(hora) {
   return "noche";
 }
 
+// Si la ventana es de 1 min o menos, «entre 15 y 16» no aporta: se enseña el minuto que dice la app (decidido el 26/11)
+export function ventanaEstrecha(v) {
+  return Boolean(v) && v.hasta - v.desde <= 1;
+}
+
+// «15–19 min» o, si la ventana es estrecha, el minuto de la app: «15 min»
+export function rangoCorto(v, minutos) {
+  return ventanaEstrecha(v) ? `${minutos} min` : `${v.desde}–${v.hasta} min`;
+}
+
 export function plural(n, uno, varios) {
   return n === 1 ? uno : varios;
 }
@@ -71,6 +81,9 @@ export function calcularLlegada(datos, parada, llegada, contexto) {
 // Llegadas que siguen pendientes tras «transcurrido» minutos de demo.
 // Cuando pasa el último autobús, la demo vuelve a empezar (ciclo), así nunca se queda vacía.
 export function llegadasVivas(parada, transcurrido) {
+  // En directo (EMT): los minutos ya son los de ahora. «0» es que está llegando: se calcula como 1 min.
+  if (parada.vivo) return parada.llegadas.map((l) => ({ ...l, minutos: Math.max(1, l.minutos) }));
+  if (parada.llegadas.length === 0) return [];
   const max = Math.max(...parada.llegadas.map((l) => l.minutos));
   const t = max > 0 ? transcurrido % max : 0;
   return parada.llegadas

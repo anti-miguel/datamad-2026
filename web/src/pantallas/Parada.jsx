@@ -4,13 +4,62 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Linea, Etiqueta, Tarjeta, Volver } from "../componentes/Comunes.jsx";
+import { IconoRed, Linea, Etiqueta, Tarjeta, Volver } from "../componentes/Comunes.jsx";
 import { IconoEstrella, IconoInfo, IconoAviso, IconoCampana } from "../componentes/Iconos.jsx";
-import { NOMBRE_RED, horaTexto } from "../lib/util.js";
+import { NOMBRE_RED, horaTexto, ventanaEstrecha } from "../lib/util.js";
 import { casillas } from "../lib/ventana.js";
 import { NombreEditable } from "./Rutas.jsx";
 import { incidenciasDelTramo } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
+import { enDirecto } from "../lib/emt.js";
+import { cargarRed } from "../lib/planificador.js";
+
+// Metro sin tiempo real (el servicio del Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
+function FrecuenciasMetro({ andenes, hora }) {
+  const [lineas, setLineas] = useState(null);
+  useEffect(() => {
+    let activo = true;
+    cargarRed()
+      .then((red) => {
+        const claves = new Set(andenes.map((a) => `m${a}`));
+        const vistas = new Map();
+        for (const p of red.patrones) {
+          if (p.red !== "metro") continue;
+          const i = p.p.findIndex((c) => claves.has(c));
+          if (i < 0 || i === p.p.length - 1) continue; // en la última estación no se sube
+          const k = `${p.linea}|${p.destino}`;
+          if (!vistas.has(k)) vistas.set(k, { linea: p.linea, destino: p.destino, cada: p.cada });
+        }
+        if (activo) setLineas([...vistas.values()].sort((a, b) => a.linea.localeCompare(b.linea, "es", { numeric: true })));
+      })
+      .catch(() => activo && setLineas([]));
+    return () => {
+      activo = false;
+    };
+  }, [andenes.join(",")]);
+  if (!lineas?.length) return null;
+  if (hora >= 1.5 && hora < 6)
+    return (
+      <Tarjeta className="p-4">
+        <p className="text-[16px] text-tinta">El Metro está cerrado ahora. Abre a las 6:00.</p>
+      </Tarjeta>
+    );
+  return (
+    <Tarjeta className="space-y-2 p-4">
+      <p className="text-[15px] text-tinta-2">Ahora no tenemos los minutos del Metro en directo. Según el horario oficial:</p>
+      <ul className="space-y-2">
+        {lineas.map((l) => (
+          <li key={`${l.linea}${l.destino}`} className="flex items-center gap-3">
+            <Linea linea={l.linea} red="metro" grande />
+            <span className="text-[16px] text-tinta">
+              → {l.destino} · <span className="font-bold">cada {l.cada} min</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Tarjeta>
+  );
+}
 
 function Minimapa({ lat, lon }) {
   const caja = useRef(null);
@@ -59,7 +108,13 @@ export function ParadaCargando() {
 }
 
 const ventanaTexto = (l) =>
-  l.lejos ? "Demasiado lejos para estimar" : l.v ? `Llega entre ${l.v.desde} y ${l.v.hasta} min` : "Sin datos suficientes";
+  l.lejos
+    ? "Demasiado lejos para estimar"
+    : l.v
+      ? ventanaEstrecha(l.v)
+        ? `Llega en ${l.minutos} min`
+        : `Llega entre ${l.v.desde} y ${l.v.hasta} min`
+      : "Sin datos suficientes";
 
 // Una tarjeta por línea: la siguiente llegada en grande y la de después en pequeño
 // Tramo dibujado parada a parada, desde la de subida hasta la de bajada, con las incidencias en su sitio
@@ -97,7 +152,7 @@ function TramoDibujado({ recorrido, fin, incidencias, subida }) {
   );
 }
 
-function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado }) {
+function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado, fuente = "la app" }) {
   const [a, b] = llegadas;
   const [destinoSel, setDestinoSel] = useState(bajada?.linea === linea ? bajada.codigo : "");
   const parada = recorrido?.find((p) => p.codigo === destinoSel);
@@ -125,20 +180,24 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
           </button>
         </div>
 
-        <p className="mt-3 text-[15px] text-suave">La app oficial dice {a.minutos} min</p>
-        <p className={`cifra mt-1 tabular-nums ${primera ? "text-[32px]" : "text-[26px]"}`}>{ventanaTexto(a)}</p>
+        {/* Si abajo ya sale el minuto exacto, no se repite */}
+        {!(a.v && ventanaEstrecha(a.v)) && (
+          <p className="mt-3 text-[15px] text-suave">
+            {fuente === "la app" ? "La app oficial" : fuente.charAt(0).toUpperCase() + fuente.slice(1)} dice {a.minutos} min
+          </p>
+        )}
+        <p className={`cifra tabular-nums ${a.v && ventanaEstrecha(a.v) ? "mt-3" : "mt-1"} ${primera ? "text-[32px]" : "text-[26px]"}`}>{ventanaTexto(a)}</p>
 
         {a.v && (
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
             <Etiqueta p={a.r.p} relleno />
-            <span className="text-[15px] text-tinta">Si a los {a.v.hasta} min no ha llegado, algo pasa.</span>
           </div>
         )}
-        {a.r && a.r.nivel !== "linea" && <p className="mt-2 text-[14px] text-suave">Estimación general de la red</p>}
+        {a.r && !["linea", "parada"].includes(a.r.nivel) && <p className="mt-2 text-[14px] text-suave">Estimación general de la red</p>}
 
         {b && (
           <p className="mt-3 rounded-lg bg-hundido px-3 py-2 text-[15px] text-tinta-2">
-            El siguiente: <span className="font-bold text-tinta">{b.v ? `entre ${b.v.desde} y ${b.v.hasta} min` : `${b.minutos} min según la app`}</span>
+            El siguiente: <span className="font-bold text-tinta">{b.v ? (ventanaEstrecha(b.v) ? `en ${b.minutos} min` : `entre ${b.v.desde} y ${b.v.hasta} min`) : `${b.minutos} min según ${fuente}`}</span>
           </p>
         )}
       </div>
@@ -226,7 +285,9 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
                     <>
                       en{" "}
                       <span className="cifra text-[20px] text-principal">
-                        {a.v.desde + parada.minutos + inc.retraso}–{a.v.hasta + parada.minutos + inc.retraso} min
+                        {ventanaEstrecha(a.v)
+                          ? `${a.minutos + parada.minutos + inc.retraso} min`
+                          : `${a.v.desde + parada.minutos + inc.retraso}–${a.v.hasta + parada.minutos + inc.retraso} min`}
                       </span>
                     </>
                   ) : (
@@ -281,7 +342,8 @@ export default function Parada({
       <div>
         <Volver texto="Mis paradas" onClick={onVolver} />
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          <IconoRed red={parada.red} grande />
+          <div className="min-w-0 flex-1">
             <NombreEditable
               nombre={nombre ?? parada.nombre}
               onCambiar={onRenombrar}
@@ -303,13 +365,19 @@ export default function Parada({
           </button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {porLinea.map((g) => (
-            <Linea key={g.linea} linea={g.linea} red={parada.red} />
+          {(porLinea.length ? porLinea.map((g) => g.linea) : parada.lineas ?? []).map((l) => (
+            <Linea key={l} linea={l} red={parada.red} />
           ))}
         </div>
       </div>
 
-      <Minimapa lat={parada.lat} lon={parada.lon} />
+      {parada.lat != null && parada.lon != null && <Minimapa lat={parada.lat} lon={parada.lon} />}
+
+      {!parada.vivo && enDirecto() && !cargando && !error && (
+        <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[15px] text-[#111]">
+          <span className="font-bold">Minutos de ejemplo.</span> Aquí todavía no tenemos el tiempo real: los minutos son de la demo. Las ventanas y la fiabilidad sí son las que hemos medido.
+        </p>
+      )}
 
       {error ? (
         <Tarjeta className="space-y-3 p-4">
@@ -337,10 +405,31 @@ export default function Parada({
               incidencias={incidencias}
               subida={parada.nombre}
               aproximado={parada.recorrido_aproximado}
+              fuente={parada.vivo ? (parada.red === "metro" ? "el Metro" : "la EMT") : "la app"}
             />
           ))}
+          {porLinea.length === 0 && parada.red === "metro" && parada.andenes && <FrecuenciasMetro andenes={parada.andenes} hora={contexto.hora} />}
+          {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && (
+            <Tarjeta className="p-4">
+              <p className="text-[16px] text-tinta">
+                {parada.red === "metro"
+                  ? parada.sinDirecto
+                    ? "Ahora no podemos darte los minutos del Metro."
+                    : "Ahora mismo el Metro no anuncia ningún tren en esta estación."
+                  : parada.sinDirecto
+                    ? "Ahora no podemos consultar la EMT. Prueba otra vez en un rato."
+                    : "Ahora mismo la EMT no anuncia ningún autobús en esta parada."}
+              </p>
+            </Tarjeta>
+          )}
           <p className="text-[13px] text-suave">
-            {tipoDia}, {horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas
+            {parada.vivo
+              ? parada.red === "metro" && parada.sinDirecto
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial del Metro · Fuente: Consorcio Regional de Transportes de Madrid`
+                : parada.red === "metro"
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Metro, se actualizan cada 15 s · ventanas medidas · Fuente: Consorcio Regional de Transportes de Madrid`
+                : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 15 s · ventanas medidas · Powered by EMT de Madrid`
+              : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas`}
           </p>
         </>
       )}
