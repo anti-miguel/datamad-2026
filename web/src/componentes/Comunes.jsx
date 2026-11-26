@@ -36,6 +36,25 @@ const FONDO_RED = { emt: "#2335F5", interurbano: "#3F8F1E", renfe: "#C8102E", me
 const NOMBRE_ICONO = { emt: "Autobús EMT", interurbano: "Autobús interurbano", renfe: "Cercanías", metro: "Metro" };
 
 export function IconoRed({ red, grande = false }) {
+  const lado = grande ? 48 : 42;
+  // Metro: rombo rojo con franja azul. Cercanías: círculo rojo abierto (una «C») sobre blanco.
+  if (red === "metro" || red === "renfe") {
+    return (
+      <svg width={lado} height={lado} viewBox="0 0 48 48" className="shrink-0" role="img" aria-label={NOMBRE_ICONO[red]}>
+        {red === "metro" ? (
+          <>
+            <path d="M24 2 46 24 24 46 2 24Z" fill="#E2231A" stroke="#111" strokeWidth="2.5" strokeLinejoin="round" />
+            <rect x="9" y="19.5" width="30" height="9" fill="#1B4D9C" stroke="#111" strokeWidth="2" />
+          </>
+        ) : (
+          <>
+            <rect x="1.5" y="1.5" width="45" height="45" rx="10" fill="#fff" stroke="#111" strokeWidth="2.5" />
+            <path d="M35.5 14.5A14 14 0 1 0 35.5 33.5" fill="none" stroke="#C8102E" strokeWidth="7" strokeLinecap="butt" />
+          </>
+        )}
+      </svg>
+    );
+  }
   return (
     <span
       className={`inline-flex shrink-0 items-center justify-center rounded-xl border-2 border-[#111] text-white ${grande ? "h-[48px] w-[48px]" : "h-[42px] w-[42px]"}`}
