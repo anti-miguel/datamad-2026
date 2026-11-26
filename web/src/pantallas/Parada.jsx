@@ -514,7 +514,7 @@ export default function Parada({
               incidencias={incidencias}
               subida={parada.nombre}
               aproximado={parada.recorrido_aproximado}
-              fuente={parada.vivo ? (parada.red === "metro" ? "el Metro" : "la EMT") : "la app"}
+              fuente={parada.vivo ? ({ metro: "el Metro", interurbano: "el Consorcio" }[parada.red] ?? "la EMT") : "la app"}
             />
           ))}
           {porLinea.length === 0 && parada.red === "metro" && parada.andenes && <FrecuenciasMetro andenes={parada.andenes} hora={contexto.hora} />}
@@ -535,8 +535,8 @@ export default function Parada({
             {parada.vivo
               ? parada.red === "metro" && parada.sinDirecto
                 ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial del Metro · Fuente: Consorcio Regional de Transportes de Madrid`
-                : parada.red === "metro"
-                ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Metro, se actualizan cada 15 s · ventanas medidas · Fuente: Consorcio Regional de Transportes de Madrid`
+                : parada.red === "metro" || parada.red === "interurbano"
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Consorcio, se actualizan cada 15 s · ventanas medidas · Fuente: Consorcio Regional de Transportes de Madrid`
                 : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 15 s · ventanas medidas · Powered by EMT de Madrid`
               : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas`}
           </p>

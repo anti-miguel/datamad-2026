@@ -218,8 +218,9 @@ def _anden_metro(codigo):
                 llega = datetime.fromisoformat(x["time"]).timestamp()
             except (KeyError, TypeError, ValueError):
                 continue
+            destino = x.get("destinationStop") or {}
             out.append({"linea": str((x.get("line") or {}).get("shortDescription") or ""),
-                        "destino": (x.get("destinationStop") or {}).get("codStop") or "", "llega": llega})
+                        "destino": destino.get("codStop") or "", "destino_nombre": (destino.get("name") or "").strip(), "llega": llega})
         return out
     return _cacheado(("me", codigo), LLEGADAS_TTL_S, pedir)
 
@@ -238,7 +239,7 @@ def metro(andenes):
     if fallos == len(andenes):
         raise RuntimeError("el servicio de tiempos del Consorcio no responde")
     ahora = time.time()
-    out = [{"linea": a["linea"], "destino": a["destino"], "minutos": max(0, round((a["llega"] - ahora) / 60))}
+    out = [{"linea": a["linea"], "destino": a["destino"], "destino_nombre": a.get("destino_nombre", ""), "minutos": max(0, round((a["llega"] - ahora) / 60))}
            for a in filas if -60 < a["llega"] - ahora < 7200]
     out.sort(key=lambda x: x["minutos"])
     return {"llegadas": out, "hora": int(ahora)}
@@ -357,7 +358,7 @@ class Manejador(BaseHTTPRequestHandler):
                 return self._responder(200, buscar_sitio(texto))
             if ruta == "metro":
                 andenes = [a for a in q.get("andenes", [""])[0].split(",") if a]
-                if not andenes or len(andenes) > 6 or not all(re.fullmatch(r"4_\d{1,4}", a) for a in andenes):
+                if not andenes or len(andenes) > 6 or not all(re.fullmatch(r"(4|8|10)_\d{1,6}", a) for a in andenes):
                     return self._responder(400, {"error": "estación no válida"})
                 return self._responder(200, metro(andenes))
             if ruta == "llegadas":
