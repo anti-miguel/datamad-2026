@@ -13,6 +13,28 @@ const CADA_MS = 20000;
 const MAX_BUSES_TRAMO = 3;
 const lonlat = ([lat, lon]) => [lon, lat];
 
+// El punto del trazado más cercano a p ([lat, lon]): la parada real suele estar en la acera, no encima de la raya
+function sobreLinea(p, linea) {
+  const k = Math.cos((p[0] * Math.PI) / 180); // grados de longitud a la escala de los de latitud
+  let mejor = p;
+  let dmin = Infinity;
+  for (let i = 0; i < linea.length - 1; i++) {
+    const [ay, ax] = linea[i];
+    const [by, bx] = linea[i + 1];
+    const dx = (bx - ax) * k;
+    const dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, (((p[1] - ax) * k) * dx + (p[0] - ay) * dy) / l2)) : 0;
+    const q = [ay + t * dy, ax + (t * dx) / k];
+    const d = ((q[1] - p[1]) * k) ** 2 + (q[0] - p[0]) ** 2;
+    if (d < dmin) {
+      dmin = d;
+      mejor = q;
+    }
+  }
+  return dmin < 2.5e-7 ? mejor : p; // a más de ~55 m se deja donde está: el trazado no es de esa parada
+}
+
 function elemento(html, clase = "") {
   const el = document.createElement("div");
   el.className = clase;
@@ -70,6 +92,28 @@ export default function MapaRuta({ opcion, desde, hasta, vivo = true }) {
         });
         map.addLayer({ id: "ruta-borde", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#111111", "line-width": 9 } });
         map.addLayer({ id: "ruta", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 5.5 } });
+        // Las paradas por las que pasas sin bajarte, como puntitos blancos sobre la línea (al estilo de Google Maps)
+        map.addSource("paso", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: tramos.flatMap((t) => {
+              const linea = caminoDe(t);
+              return t.camino.slice(1, -1).map((p) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: lonlat(sobreLinea(p, linea)) } }));
+            }),
+          },
+        });
+        map.addLayer({
+          id: "paso",
+          type: "circle",
+          source: "paso",
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5],
+            "circle-color": "#FFFFFF",
+            "circle-stroke-color": "#111111",
+            "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 11, 1.2, 15, 2],
+          },
+        });
         // subidas con la línea que coges, bajadas en blanco
         tramos.forEach((t, i) => {
           const sube = elemento(`<span class="bus-mapa-linea" style="background:${colorDeLinea(t.red, t.linea)}">${t.linea}</span>`, "subida-mapa");
