@@ -1,6 +1,6 @@
 // Planificador de rutas desde cualquier sitio: elegir un punto (ubicación, sitio de la demo, parada, estación o dirección)
 // y ver las opciones con la red de la EMT y el Metro (lib/planificador.js). El primer autobús va con los minutos en directo.
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Linea, Etiqueta, Tarjeta, IconoRed, colorDeLinea } from "./Comunes.jsx";
 import { Paso, Hito } from "./Pasos.jsx";
 import { IconoAndar, IconoPin, IconoTransbordo, IconoCampana, IconoReloj } from "./Iconos.jsx";
@@ -12,6 +12,14 @@ import { enDirecto, llegadasEmt, paradaEmtViva } from "../lib/emt.js";
 import MapaRuta from "./MapaRuta.jsx";
 
 const BASE = import.meta.env?.BASE_URL ?? "/";
+
+// ¿Se usan los datos en directo? Solo si sales ahora (y no en el modo de ensayo): si sales o llegas a otra hora,
+// los autobuses de ahora no sirven de nada.
+const Vivo = createContext(true);
+const useVivo = () => useContext(Vivo) && enDirecto();
+
+// Decimal (8.5) -> "8:30"
+const horaTexto = (h) => `${Math.floor(((h % 24) + 24) % 24)}:${String(Math.round((((h % 1) + 1) % 1) * 60) % 60).padStart(2, "0")}`;
 
 // Lista de nombres de paradas y estaciones sin repetir, para el buscador
 function nombresDeRed(red) {
@@ -160,10 +168,11 @@ export function SelectorPunto({ etiqueta, valor, onCambiar, lugares = [] }) {
 
 // Minutos en directo del primer autobús con su ventana medida, en corto: «pasa en 10–14 min · Fiable»
 function PrimerAutobus({ tramo, andarAntes, datos, contexto }) {
+  const enVivo = useVivo();
   const [vivo, setVivo] = useState(null);
   const numero = tramo.desde.clave.slice(1);
   useEffect(() => {
-    if (!enDirecto()) return;
+    if (!enVivo) return;
     let activo = true;
     llegadasEmt(numero)
       .then((d) => activo && setVivo(d.llegadas.filter((l) => String(l.linea) === String(tramo.linea))))
@@ -203,10 +212,11 @@ function Cadena({ tramos }) {
 // Cuándo pasa el vehículo de un tramo, para la tarjeta amarilla de los pasos.
 // EMT: minutos en directo (el primero que da tiempo a coger) con la ventana medida. Metro: cada cuánto pasa.
 function EsperaTramo({ t, llegasEn, datos, contexto }) {
+  const enVivo = useVivo();
   const [vivo, setVivo] = useState(null);
   const numero = t.red === "emt" ? t.desde.clave.slice(1) : null;
   useEffect(() => {
-    if (!numero || !enDirecto()) return;
+    if (!numero || !enVivo) return;
     let activo = true;
     llegadasEmt(numero)
       .then((d) => activo && setVivo(d.llegadas.filter((l) => String(l.linea) === String(t.linea))))
@@ -369,6 +379,7 @@ function PasosRuta({ o, desde, hasta, datos, contexto, onAbrirParada }) {
 
 // Cabecera y resumen de una opción (se repiten en la lista y en el viaje iniciado)
 function Resumen({ o, primera, datos, contexto }) {
+  const vivo = useVivo();
   const viajes = o.tramos.filter((t) => t.tipo === "viaje");
   const primero = viajes[0];
   return (
@@ -389,7 +400,7 @@ function Resumen({ o, primera, datos, contexto }) {
           {primero ? (
             <>
               Subes en <span className="font-bold text-tinta">{primero.desde.nombre}</span>
-              {primero.red === "emt" && enDirecto() && (
+              {primero.red === "emt" && vivo && (
                 <>
                   {" · "}
                   <PrimerAutobus tramo={primero} andarAntes={o.tramos[0]?.tipo === "andar" ? o.tramos[0].minutos : 0} datos={datos} contexto={contexto} />
@@ -420,15 +431,11 @@ function Opcion({ o, primera, datos, contexto, onIniciar }) {
 // Viaje iniciado: solo esta ruta, con el mapa en directo (interruptor, apagado por defecto) y los pasos
 // Mismo esquema que el detalle de las rutas de Alex (pantallas/Rutas.jsx → DetalleRuta): «Quiero llegar antes de las…»,
 // «Si sales ahora…», «Lo más seguro / Voy con prisa», y en los pasos, vagones y aviso antes de bajar.
-function horaMasMinutos(base, minutos) {
-  const m = Math.round(base * 60 + minutos);
-  return `${Math.floor(m / 60) % 24}:${String(((m % 60) + 60) % 60).padStart(2, "0")}`;
-}
 
-function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSalir, onGuardar, guardada }) {
+function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSalir, onGuardar, guardada, momento }) {
+  const vivo = useVivo();
   const [mapa, setMapa] = useState(false);
   const [modo, setModo] = useState("segura");
-  const [llegar, setLlegar] = useState(() => horaMasMinutos(contexto?.hora ?? 9, o.peor + 15));
   const [primerBus, setPrimerBus] = useState(null); // minutos del primer autobús que da tiempo a coger (EMT en directo)
   useEffect(() => {
     window.scrollTo(0, 0); // entre llaves: en navegadores nuevos scrollTo devuelve una promesa y React la tomaría por limpieza
@@ -439,7 +446,7 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
   const primero = o.tramos[iPrimero];
   const andarAntes = o.tramos.slice(0, iPrimero).reduce((s, t) => s + (t.tipo === "andar" ? t.minutos : 0), 0);
   useEffect(() => {
-    if (!primero || primero.red !== "emt" || !enDirecto()) return;
+    if (!primero || primero.red !== "emt" || !vivo) return;
     let activo = true;
     llegadasEmt(primero.desde.clave.slice(1))
       .then((d) => {
@@ -454,35 +461,26 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
   }, []);
 
   const total = modo === "rapida" ? o.total : o.peor; // con prisa, el tiempo normal; lo seguro, el peor caso medido
-  const [hh, mm] = llegar.split(":").map(Number);
-  const salidaMin = hh * 60 + mm - total;
-  const salida = Number.isFinite(salidaMin) ? `${Math.floor(((salidaMin % 1440) + 1440) % 1440 / 60)}:${String(((salidaMin % 60) + 60) % 60).padStart(2, "0")}` : null;
   const salAntes = primerBus != null ? primerBus - andarAntes : null;
+  // la hora se eligió antes de buscar: «llegar antes de» -> a qué hora salir; «salir a» o «ahora» -> a qué hora llegas
+  const horaPedida = momento?.tipo === "ahora" ? contexto?.hora ?? 0 : momento?.horaDecimal ?? contexto?.hora ?? 0;
+  const titular =
+    momento?.tipo === "llegar"
+      ? `Sal a las ${horaTexto(horaPedida - total / 60)}`
+      : `Llegas a las ${horaTexto(horaPedida + total / 60)}`;
+  const subtitulo =
+    momento?.tipo === "llegar" ? `para llegar antes de las ${horaTexto(horaPedida)}` : momento?.tipo === "salir" ? `si sales a las ${horaTexto(horaPedida)}` : "si sales ahora";
 
   return (
     <div className="space-y-3">
       <button onClick={onSalir} className="min-h-[44px] text-[16px] font-bold text-principal">
         ← Otras opciones
       </button>
-      {!enDirecto() && contexto && (
-        <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[14px] font-bold text-[#111]">
-          Modo ensayo: viaje a las {Math.floor(contexto.hora)}:{String(Math.round((contexto.hora % 1) * 60)).padStart(2, "0")}, sin datos en directo.
-        </p>
-      )}
 
-      {/* ¿cuándo salgo? (como en las rutas de la demo) */}
+      {/* ¿cuándo salgo / cuándo llego? (como en las rutas de la demo, con la hora elegida antes de buscar) */}
       <Tarjeta sombra className="!bg-amarillo p-4">
-        <div className="flex flex-wrap items-center gap-2 text-[15px] font-bold">
-          <span>Quiero llegar antes de las</span>
-          <input
-            type="time"
-            value={llegar.padStart(5, "0")}
-            onChange={(e) => e.target.value && setLlegar(e.target.value.replace(/^0(?=\d:)/, ""))}
-            className="pegatina h-[40px] rounded-lg bg-tarjeta px-2 text-[17px] font-bold"
-            aria-label="Hora a la que quieres llegar"
-          />
-        </div>
-        <p className="cifra mt-2 text-[34px] tabular-nums">{salida ? `Sal a las ${salida}` : "Sin datos suficientes"}</p>
+        <p className="text-[15px] font-bold">{subtitulo.charAt(0).toUpperCase() + subtitulo.slice(1)}</p>
+        <p className="cifra mt-1 text-[34px] tabular-nums">{titular}</p>
         <p className="mt-1 text-[15px]">
           El viaje dura {o.total === o.peor ? `${o.total} min` : `${o.total}–${o.peor} min`} · {o.transbordos === 1 ? "1 transbordo" : `${o.transbordos} transbordos`}
         </p>
@@ -542,7 +540,7 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
             </span>
           </button>
         )}
-        {mapa && <MapaRuta opcion={o} desde={desde} hasta={hasta} />}
+        {mapa && <MapaRuta opcion={o} desde={desde} hasta={hasta} vivo={vivo} />}
       </Tarjeta>
       <Tarjeta className="p-4">
         <PasosRuta o={o} desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} />
@@ -570,7 +568,7 @@ function margenMedido(datos, contexto) {
   };
 }
 
-export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onViaje = () => {}, onGuardar = () => {}, guardada = false }) {
+export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onViaje = () => {}, onGuardar = () => {}, guardada = false, momento = { tipo: "ahora" } }) {
   const [estado, setEstado] = useState({ cargando: true, opciones: [] });
   const [iniciada, setIniciada] = useState(null); // índice de la opción iniciada
   useEffect(() => {
@@ -588,7 +586,7 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onV
       activo = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desde.lat, desde.lon, hasta.lat, hasta.lon, Boolean(datos)]);
+  }, [desde.lat, desde.lon, hasta.lat, hasta.lon, Boolean(datos), contexto?.hora, contexto?.finde]);
 
   function abrir(p) {
     onAbrirParada(`emt-${p.clave.slice(1)}`, paradaEmtViva({ id: p.clave.slice(1), nombre: p.nombre, lat: p.lat, lon: p.lon, lineas: [] }));
@@ -605,7 +603,9 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onV
     );
   if (iniciada !== null && estado.opciones[iniciada])
     return (
+      <Vivo.Provider value={momento.tipo === "ahora"}>
       <Viaje
+        momento={momento}
         o={estado.opciones[iniciada]}
         primera={iniciada === 0}
         datos={datos}
@@ -617,15 +617,22 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onV
         onGuardar={onGuardar}
         guardada={guardada}
       />
+      </Vivo.Provider>
     );
   // En el modo de ensayo (?hora=…) la hora es inventada: se dice, para que nadie crea que es la de ahora
-  const ensayo = !enDirecto() && contexto ? (
-    <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[14px] font-bold text-[#111]">
-      Modo ensayo: rutas para las {Math.floor(contexto.hora)}:{String(Math.round((contexto.hora % 1) * 60)).padStart(2, "0")} de un{" "}
-      {contexto.finde ? "fin de semana" : "laborable"}, sin datos en directo.
-    </p>
-  ) : null;
+  const ensayo =
+    !enDirecto() && contexto ? (
+      <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[14px] font-bold text-[#111]">
+        Modo ensayo: rutas para las {horaTexto(contexto.hora)} de un {contexto.finde ? "fin de semana" : "laborable"}, sin datos en directo.
+      </p>
+    ) : momento.tipo !== "ahora" ? (
+      <p className="text-[14px] text-tinta-2">
+        {momento.tipo === "llegar" ? `Rutas para llegar antes de las ${horaTexto(momento.horaDecimal)}` : `Rutas para salir a las ${horaTexto(momento.horaDecimal)}`}: líneas y
+        frecuencias de esa hora. Los minutos en directo solo salen si vas a salir ahora.
+      </p>
+    ) : null;
   return (
+    <Vivo.Provider value={momento.tipo === "ahora"}>
     <section className="space-y-3" aria-live="polite">
       {ensayo}
       {estado.opciones.map((o, i) => (
@@ -635,5 +642,6 @@ export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onV
         «Si se tuerce»: lo que tarda 1 de cada 10 veces, según lo que hemos medido. Primero, la que menos se retrasa y menos cansa.
       </p>
     </section>
+    </Vivo.Provider>
   );
 }

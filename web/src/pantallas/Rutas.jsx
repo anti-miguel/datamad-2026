@@ -174,6 +174,19 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
   // ahorro según tu experiencia (lo apuntas tú en la ruta); si no hay, el que sale de los datos
   const ahorro = tuya?.ahorro_experiencia ?? (cTuya?.total && cPlan?.total ? cPlan.total.hasta - cTuya.total.hasta : 0);
   const deExperiencia = tuya?.ahorro_experiencia != null;
+  // Cuándo: «Salir ahora», «Salir a las…» o «Llegar antes de las…». Se elige antes de buscar porque cambia
+  // qué hay (de madrugada no hay Metro) y cada cuánto pasa. Con «llegar», se calcula para una salida ~45 min antes.
+  const ahoraTexto = () => {
+    const d = new Date(Date.now() + 15 * 60000);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+  const [momento, setMomento] = useState({ tipo: "ahora", hora: ahoraTexto() });
+  const [hhM, mmM] = momento.hora.split(":").map(Number);
+  const horaDecimal = hhM + mmM / 60;
+  const contextoPlan =
+    momento.tipo === "ahora" ? contexto : { ...contexto, hora: momento.tipo === "llegar" ? (horaDecimal - 0.75 + 24) % 24 : horaDecimal };
+  const momentoPlan = { ...momento, horaDecimal };
+
   // Con un viaje iniciado solo se enseña ese viaje (sin buscador, ruta de la demo ni «Mis rutas»)
   const [enViaje, setEnViaje] = useState(false);
   // Rutas guardadas desde el planificador («Guardar en Mis rutas»): salen en «Mis rutas» junto a las de la demo
@@ -212,6 +225,37 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
           </button>
         </div>
         <SelectorPunto etiqueta="Hasta" valor={hasta} lugares={lugares} onCambiar={setHasta} />
+        <div className="space-y-2 pt-1">
+          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Cuándo">
+            {[
+              ["ahora", "Salir ahora"],
+              ["salir", "Salir a las"],
+              ["llegar", "Llegar antes de"],
+            ].map(([id, texto]) => (
+              <button
+                key={id}
+                role="radio"
+                aria-checked={momento.tipo === id}
+                onClick={() => setMomento((m) => ({ ...m, tipo: id }))}
+                className={`boton-pegatina min-h-[44px] rounded-xl px-1 text-[14px] font-bold leading-tight ${momento.tipo === id ? "bg-principal text-white" : "bg-tarjeta text-tinta"}`}
+              >
+                {texto}
+              </button>
+            ))}
+          </div>
+          {momento.tipo !== "ahora" && (
+            <label className="flex items-center gap-2 text-[15px] font-bold text-tinta">
+              {momento.tipo === "llegar" ? "Llegar antes de las" : "Salir a las"}
+              <input
+                type="time"
+                value={momento.hora}
+                onChange={(e) => e.target.value && setMomento((m) => ({ ...m, hora: e.target.value }))}
+                className="pegatina h-[44px] rounded-lg bg-tarjeta px-2 text-[17px] font-bold"
+                aria-label={momento.tipo === "llegar" ? "Hora a la que quieres llegar" : "Hora a la que quieres salir"}
+              />
+            </label>
+          )}
+        </div>
       </Tarjeta>
       </div>
 
@@ -246,7 +290,7 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
           )}
           {(tuya || plan) && <h2 className="pt-2 text-[16px] font-bold text-tinta-2">Más opciones con la EMT y el Metro</h2>}
           </div>
-          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} onViaje={setEnViaje} onGuardar={guardarRuta} guardada={yaGuardada} />
+          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contextoPlan} momento={momentoPlan} onAbrirParada={onAbrirParada} onViaje={setEnViaje} onGuardar={guardarRuta} guardada={yaGuardada} />
           {!tuya && plan && !enViaje && (
             <p className="text-[14px] text-tinta-2">¿Conoces un camino mejor? Guárdalo como tu ruta y te lo propondremos primero.</p>
           )}

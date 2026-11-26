@@ -20,7 +20,7 @@ function elemento(html, clase = "") {
   return el;
 }
 
-export default function MapaRuta({ opcion, desde, hasta }) {
+export default function MapaRuta({ opcion, desde, hasta, vivo = true }) {
   const caja = useRef(null);
   const [listo, setListo] = useState(null); // { map, maplibregl }
   const [estado, setEstado] = useState("Cargando el mapa…");
@@ -115,8 +115,8 @@ export default function MapaRuta({ opcion, desde, hasta }) {
       setEstado("En esta ruta no hay autobuses de la EMT. El Metro no publica dónde van sus trenes.");
       return;
     }
-    if (!enDirecto()) {
-      setEstado("En el modo de ensayo no hay posiciones en directo.");
+    if (!enDirecto() || !vivo) {
+      setEstado(enDirecto() ? "Sales a otra hora: los autobuses de ahora no te sirven, así que no se enseñan." : "En el modo de ensayo no hay posiciones en directo.");
       return;
     }
     const { map, maplibregl } = listo;
