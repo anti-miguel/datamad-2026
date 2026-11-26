@@ -37,21 +37,24 @@ const NOMBRE_ICONO = { emt: "Autobús EMT", interurbano: "Autobús interurbano",
 
 export function IconoRed({ red, grande = false }) {
   const lado = grande ? 48 : 42;
-  // Metro: rombo rojo con franja azul. Cercanías: círculo rojo abierto (una «C») sobre blanco.
-  if (red === "metro" || red === "renfe") {
+  // Aproximaciones a las señales de Metro y Cercanías, sin texto, con sus proporciones y colores
+  if (red === "metro") {
     return (
       <svg width={lado} height={lado} viewBox="0 0 48 48" className="shrink-0" role="img" aria-label={NOMBRE_ICONO[red]}>
-        {red === "metro" ? (
-          <>
-            <path d="M24 2 46 24 24 46 2 24Z" fill="#E2231A" stroke="#111" strokeWidth="2.5" strokeLinejoin="round" />
-            <rect x="9" y="19.5" width="30" height="9" fill="#1B4D9C" stroke="#111" strokeWidth="2" />
-          </>
-        ) : (
-          <>
-            <rect x="1.5" y="1.5" width="45" height="45" rx="10" fill="#fff" stroke="#111" strokeWidth="2.5" />
-            <path d="M35.5 14.5A14 14 0 1 0 35.5 33.5" fill="none" stroke="#C8102E" strokeWidth="7" strokeLinecap="butt" />
-          </>
-        )}
+        <rect x="1.25" y="1.25" width="45.5" height="45.5" rx="9" fill="#0B56A4" stroke="#111" strokeWidth="2.5" />
+        {/* rombo ancho (≈1,6:1) con borde blanco fino, banda roja, rombo blanco y placa azul en el centro */}
+        <path d="M3.2 24 24 10.6 44.8 24 24 37.4Z" fill="#E4262C" stroke="#fff" strokeWidth="1.2" strokeLinejoin="miter" />
+        <path d="M11.4 24 24 15.9 36.6 24 24 32.1Z" fill="#fff" />
+        <rect x="13.8" y="19.6" width="20.4" height="8.8" fill="#0B56A4" stroke="#fff" strokeWidth="1" />
+      </svg>
+    );
+  }
+  if (red === "renfe") {
+    return (
+      <svg width={lado} height={lado} viewBox="0 0 48 48" className="shrink-0" role="img" aria-label={NOMBRE_ICONO[red]}>
+        <circle cx="24" cy="24" r="22.75" fill="#EE2B30" stroke="#111" strokeWidth="2.5" />
+        {/* arco blanco de tres cuartos: empieza arriba, gira por la derecha y abajo, y acaba a la izquierda con cortes rectos */}
+        <path d="M24 8.8A15.2 15.2 0 1 1 8.8 24H16.4A7.6 7.6 0 1 0 24 16.4Z" fill="#fff" />
       </svg>
     );
   }
