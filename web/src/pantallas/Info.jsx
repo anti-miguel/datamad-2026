@@ -56,6 +56,28 @@ export default function Info({ meta, sesion, onSalir }) {
       </Tarjeta>
 
       <Tarjeta className="p-4">
+        <h2 className="text-[17px] font-bold text-tinta">Mapas</h2>
+        <ul className="mt-1">
+          <li>
+            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="flex min-h-[44px] items-center text-[15px] text-principal underline">
+              © Colaboradores de OpenStreetMap (ODbL)
+            </a>
+          </li>
+          <li>
+            <a href="https://carto.com/attribution/" target="_blank" rel="noreferrer" className="flex min-h-[44px] items-center text-[15px] text-principal underline">
+              © CARTO, estilo Positron
+            </a>
+          </li>
+          <li>
+            <a href="https://maplibre.org" target="_blank" rel="noreferrer" className="flex min-h-[44px] items-center text-[15px] text-principal underline">
+              MapLibre y Leaflet
+            </a>
+          </li>
+        </ul>
+        <p className="mt-2 text-[14px] text-tinta-2">Direcciones buscadas con Nominatim (OpenStreetMap).</p>
+      </Tarjeta>
+
+      <Tarjeta className="p-4">
         <details>
           <summary className="min-h-[36px] cursor-pointer text-[17px] font-bold text-tinta">Límites de los datos</summary>
           <ul className="mt-2 list-disc space-y-2 pl-5 text-[15px] text-tinta-2">

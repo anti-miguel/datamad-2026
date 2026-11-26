@@ -9,12 +9,13 @@ import L from "leaflet";
 const CLAVE_CARTO = import.meta.env?.VITE_CARTO_KEY;
 
 export function fondoMapa(mapa) {
+  mapa.attributionControl?.setPrefix(false); // sin «Leaflet |»: el crédito completo está en Info
   if (CLAVE_CARTO) {
     mapa.getContainer().classList.add("mapa-carto");
     return L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CLAVE_CARTO)}`, {
       subdomains: "abcd",
       maxZoom: 20,
-      attribution: "© OpenStreetMap contributors, © CARTO",
+      attribution: "© OpenStreetMap · CARTO",
     }).addTo(mapa);
   }
   return L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {

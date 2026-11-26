@@ -430,9 +430,13 @@ function margenMedido(datos, contexto) {
   };
 }
 
-export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada }) {
+export function OpcionesPlan({ desde, hasta, datos, contexto, onAbrirParada, onViaje = () => {} }) {
   const [estado, setEstado] = useState({ cargando: true, opciones: [] });
   const [iniciada, setIniciada] = useState(null); // índice de la opción iniciada
+  useEffect(() => {
+    onViaje(iniciada !== null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iniciada]);
   useEffect(() => {
     let activo = true;
     setIniciada(null);

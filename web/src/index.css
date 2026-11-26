@@ -238,3 +238,40 @@ input:focus-visible {
   border: 2px solid #111;
   box-shadow: 2px 2px 0 #111;
 }
+
+/* Botón del mapa para volver a ver toda la ruta (como el de Google Maps) */
+.mapa-volver {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 10px 10px 0 0 !important;
+  border: 2.5px solid #111;
+  border-radius: 50%;
+  background: #fffdf6;
+  box-shadow: 2px 2px 0 #111;
+  pointer-events: auto;
+}
+
+/* Crédito mínimo de los mapas (OpenStreetMap y CARTO lo exigen visible); el completo está en Info */
+.mapa-credito {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  z-index: 2;
+  font-size: 9px;
+  line-height: 1;
+  color: #4a4e6a;
+  opacity: 0.8;
+  text-decoration: none;
+}
+.mapa-yavoy .leaflet-control-attribution {
+  font-size: 9px;
+  padding: 0 4px;
+  background: transparent;
+  opacity: 0.8;
+}
+.mapa-yavoy .leaflet-control-attribution a {
+  color: #4a4e6a;
+}

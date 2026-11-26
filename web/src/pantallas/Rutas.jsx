@@ -174,9 +174,12 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
   // ahorro según tu experiencia (lo apuntas tú en la ruta); si no hay, el que sale de los datos
   const ahorro = tuya?.ahorro_experiencia ?? (cTuya?.total && cPlan?.total ? cPlan.total.hasta - cTuya.total.hasta : 0);
   const deExperiencia = tuya?.ahorro_experiencia != null;
+  // Con un viaje iniciado solo se enseña ese viaje (sin buscador, ruta de la demo ni «Mis rutas»)
+  const [enViaje, setEnViaje] = useState(false);
 
   return (
     <div className="space-y-4">
+      <div hidden={enViaje} className="space-y-4">
       <h1 className="titulo pt-2 text-[32px] text-tinta">¿A dónde vas?</h1>
 
       <Tarjeta className="relative space-y-3 p-4">
@@ -195,6 +198,7 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
         </div>
         <SelectorPunto etiqueta="Hasta" valor={hasta} lugares={lugares} onCambiar={setHasta} />
       </Tarjeta>
+      </div>
 
       {!desde || !hasta ? (
         <p className="text-[16px] text-tinta-2">Elige de dónde sales y a dónde vas.</p>
@@ -202,6 +206,7 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
         <p className="text-[16px] text-tinta-2">Elige un destino distinto del origen.</p>
       ) : (
         <section className="space-y-3" aria-live="polite">
+          <div hidden={enViaje} className="space-y-3">
           {tuya && cTuya && (
             <TarjetaOpcion
               titulo={nombres[`ruta-${tuya.id}`] ?? tuya.nombre}
@@ -225,13 +230,15 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
             />
           )}
           {(tuya || plan) && <h2 className="pt-2 text-[16px] font-bold text-tinta-2">Más opciones con la EMT y el Metro</h2>}
-          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} />
-          {!tuya && plan && (
+          </div>
+          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} onViaje={setEnViaje} />
+          {!tuya && plan && !enViaje && (
             <p className="text-[14px] text-tinta-2">¿Conoces un camino mejor? Guárdalo como tu ruta y te lo propondremos primero.</p>
           )}
         </section>
       )}
 
+      <div hidden={enViaje} className="space-y-4">
       <h2 className="titulo pt-2 text-[22px] text-tinta">Mis rutas</h2>
       {rutas.map((ruta) => {
         const Icono = ICONOS[ruta.icono] ?? IconoRutas;
@@ -292,6 +299,7 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
       </button>
 
       <p className="text-[13px] text-suave">Esperas medidas · viajes en metro y andando, aproximados</p>
+      </div>
     </div>
   );
 }

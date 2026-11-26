@@ -44,22 +44,50 @@ export async function crearMapa(caja, puntos, { interactivo = true } = {}) {
       [Math.max(...lons), Math.max(...lats)],
     ],
     fitBoundsOptions: { padding: 36, maxZoom: 16 },
-    attributionControl: { compact: true },
+    attributionControl: false, // el botón «i» estorbaba: va un crédito mínimo en texto (abajo) y el completo en Info
     dragRotate: false,
     pitchWithRotate: false,
     touchPitch: false,
     interactive: interactivo,
-    cooperativeGestures: interactivo, // en el móvil, un dedo desplaza la página y dos mueven el mapa
-    locale: {
-      "CooperativeGesturesHandler.MobileHelpText": "Usa dos dedos para mover el mapa",
-      "CooperativeGesturesHandler.WindowsHelpText": "Usa Ctrl + rueda para acercar el mapa",
-      "CooperativeGesturesHandler.MacHelpText": "Usa ⌘ + rueda para acercar el mapa",
-      "NavigationControl.ZoomIn": "Acercar",
-      "NavigationControl.ZoomOut": "Alejar",
-    },
+    // Como Google Maps: un dedo mueve el mapa, dos dedos acercan; sin botones de zoom
+    cooperativeGestures: false,
   });
   map.touchZoomRotate?.disableRotation();
-  if (interactivo) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
+  // Crédito obligatorio de OpenStreetMap y CARTO, en pequeño
+  const credito = document.createElement("a");
+  credito.className = "mapa-credito";
+  credito.href = "https://www.openstreetmap.org/copyright";
+  credito.target = "_blank";
+  credito.rel = "noreferrer";
+  credito.textContent = "© OpenStreetMap · CARTO";
+  caja.appendChild(credito);
+  // Botón redondo para volver a ver toda la ruta, por si te pierdes moviendo el mapa
+  const limites = [
+    [Math.min(...lons), Math.min(...lats)],
+    [Math.max(...lons), Math.max(...lats)],
+  ];
+  if (interactivo) {
+    map.addControl(
+      {
+        onAdd() {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "maplibregl-ctrl mapa-volver";
+          b.setAttribute("aria-label", "Volver a ver toda la ruta");
+          b.title = "Volver a ver toda la ruta";
+          b.innerHTML =
+            '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="#111"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+          b.onclick = () => map.fitBounds(limites, { padding: 36, maxZoom: 16 });
+          this.el = b;
+          return b;
+        },
+        onRemove() {
+          this.el?.remove();
+        },
+      },
+      "top-right",
+    );
+  }
   await new Promise((ok) => map.once("load", ok));
   retocarEstilo(map);
   return { map, maplibregl };
