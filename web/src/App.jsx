@@ -15,7 +15,7 @@ import Login from "./pantallas/Login.jsx";
 import { AvisoAbono, leerAbono, guardarAbono } from "./componentes/Abono.jsx";
 import { posicionVehiculo } from "./lib/ventana.js";
 import { aMinutos, calcularLlegada, contextoActual, iconoDeRed, llegadasVivas } from "./lib/util.js";
-import { cargarIndiceMetro, consultaDirecto, enDirecto, llegadasEmt, llegadasMetro } from "./lib/emt.js";
+import { cargarIndiceMetro, consultaDirecto, enDirecto, llegadasEmt, llegadasMetro, nombreBonito } from "./lib/emt.js";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -230,7 +230,7 @@ export default function App() {
         ? llegadasEmt(c.numero)
         : Promise.all([llegadasMetro(c.andenes), cargarIndiceMetro()]).then(([d, ix]) => ({
             ...d,
-            llegadas: d.llegadas.map((l) => ({ ...l, destino: ix.nombres[l.destino] ?? l.destino })),
+            llegadas: d.llegadas.map((l) => ({ ...l, destino: ix.nombres[l.destino] ? nombreBonito(ix.nombres[l.destino]) : l.destino })),
           }));
     const consultar = () =>
       lista.forEach(([id, c]) =>

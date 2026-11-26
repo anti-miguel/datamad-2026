@@ -35,14 +35,14 @@ export function cargarIndiceMetro() {
 export function paradaMetroViva(e) {
   return {
     id: `metro-${e.id}`,
-    nombre: e.nombre,
+    nombre: nombreBonito(e.nombre),
     red: "metro",
     tipo: "estacion",
     lat: e.lat,
     lon: e.lon,
     lineas: e.lineas,
     andenes: e.andenes,
-    etiqueta: `Metro · estación de ${e.nombre}`,
+    etiqueta: `Metro · estación de ${nombreBonito(e.nombre)}`,
     llegadas: [],
     directa: true,
   };
@@ -67,11 +67,32 @@ export function numeroEmt(id) {
   return id?.startsWith("emt-") ? id.slice(4) : null;
 }
 
+// Mismas mayúsculas para todos los nombres (la EMT escribe «Pinar De Chamartín», el Metro «PINAR DEL REY»):
+// artículos y preposiciones en minúscula salvo al principio del nombre o después de un guion («Pío XII - La Paloma»)
+const MINUSCULAS = new Set(["de", "del", "la", "las", "los", "el", "y", "e", "a", "al", "en", "con"]);
+export function nombreBonito(nombre) {
+  let inicio = true;
+  return String(nombre)
+    .replace(/\s+-\s+/g, " - ")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => {
+      if (w === "-") {
+        inicio = true;
+        return w;
+      }
+      const sale = !inicio && MINUSCULAS.has(w.toLowerCase()) ? w.toLowerCase() : w;
+      inicio = false;
+      return sale;
+    })
+    .join(" ");
+}
+
 // Parada de la EMT que no está en la demo, a partir de la respuesta de /cercanas
 export function paradaEmtViva(p) {
   return {
     id: `emt-${p.id}`,
-    nombre: p.nombre,
+    nombre: nombreBonito(p.nombre),
     red: "emt",
     tipo: "intermedia",
     lat: p.lat,
