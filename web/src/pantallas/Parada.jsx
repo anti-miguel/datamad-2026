@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Linea, Etiqueta, Tarjeta, Volver } from "../componentes/Comunes.jsx";
+import { IconoRed, Linea, Etiqueta, Tarjeta, Volver } from "../componentes/Comunes.jsx";
 import { IconoEstrella, IconoInfo, IconoAviso, IconoCampana } from "../componentes/Iconos.jsx";
 import { NOMBRE_RED, horaTexto } from "../lib/util.js";
 import { casillas } from "../lib/ventana.js";
@@ -281,7 +281,8 @@ export default function Parada({
       <div>
         <Volver texto="Mis paradas" onClick={onVolver} />
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          <IconoRed red={parada.red} grande />
+          <div className="min-w-0 flex-1">
             <NombreEditable
               nombre={nombre ?? parada.nombre}
               onCambiar={onRenombrar}

@@ -1,6 +1,6 @@
 // Pantalla 1: Paradas (inicio). Objetivo: llegar en dos toques a una parada.
 import { useEffect, useMemo, useState } from "react";
-import { Linea, Tarjeta } from "../componentes/Comunes.jsx";
+import { IconoRed, Linea, Tarjeta } from "../componentes/Comunes.jsx";
 import { IconoLupa, IconoAviso, IconoEstrella, IconoPin } from "../componentes/Iconos.jsx";
 import { cargarIndiceMetro, cercanasEmt, distanciaM, paradaEmtViva, paradaMetroViva, textoDistancia } from "../lib/emt.js";
 import { NOMBRE_RED, normalizar } from "../lib/util.js";
@@ -62,8 +62,9 @@ function TarjetaParada({ parada, favorita, nombre, onAbrir, distancia = null }) 
   return (
     <button onClick={onAbrir} className="block w-full text-left">
       <Tarjeta className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
+        <div className="flex items-start gap-3">
+          <IconoRed red={parada.red} />
+          <div className="min-w-0 flex-1">
             <h3 className="text-[20px] font-bold text-tinta">{nombre ?? parada.nombre}</h3>
             {nombre && nombre !== parada.nombre && <p className="text-[14px] text-suave">{parada.nombre}</p>}
             <p className="text-[15px] text-suave">

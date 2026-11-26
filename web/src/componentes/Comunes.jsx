@@ -1,5 +1,7 @@
 // Piezas pequeñas que se repiten en varias pantallas
 import { nivelFiabilidad } from "../lib/ventana.js";
+import { iconoDeRed } from "../lib/util.js";
+import { IconoVehiculo } from "./Iconos.jsx";
 
 // Color de cada línea de metro, como en los planos (fondo, texto)
 const COLOR_METRO = {
@@ -25,6 +27,23 @@ export function Linea({ linea, red = "emt", grande = false }) {
       aria-label={metro ? `Metro línea ${linea}` : undefined}
     >
       {linea}
+    </span>
+  );
+}
+
+// Cuadrado con el icono genérico de la red (sin logotipos de operadores, sección 1.2), con el color de sus líneas
+const FONDO_RED = { emt: "#2335F5", interurbano: "#3F8F1E", renfe: "#C8102E", metro: "#111111" };
+const NOMBRE_ICONO = { emt: "Autobús EMT", interurbano: "Autobús interurbano", renfe: "Cercanías", metro: "Metro" };
+
+export function IconoRed({ red, grande = false }) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center justify-center rounded-xl border-2 border-[#111] text-white ${grande ? "h-[48px] w-[48px]" : "h-[42px] w-[42px]"}`}
+      style={{ background: FONDO_RED[red] ?? "#3A4558" }}
+      role="img"
+      aria-label={NOMBRE_ICONO[red] ?? "Transporte"}
+    >
+      <IconoVehiculo tipo={iconoDeRed(red)} className={grande ? "h-7 w-7" : "h-6 w-6"} />
     </span>
   );
 }
