@@ -27,6 +27,57 @@ def seg(hhmmss):
     return h * 3600 + m * 60 + s
 
 
+# ── Trazados por las calles (shapes.txt): simplificados y en polilínea codificada (formato de Google) ──
+def simplificar(puntos, tolerancia_m=4.0):
+    """Douglas-Peucker en metros (aproximación plana, vale para una ciudad)."""
+    if len(puntos) < 3:
+        return puntos
+    def dist(p, a, b):
+        ax, ay = a[1] * 85000, a[0] * 111000
+        bx, by = b[1] * 85000, b[0] * 111000
+        px, py = p[1] * 85000, p[0] * 111000
+        dx, dy = bx - ax, by - ay
+        if dx == dy == 0:
+            return ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+        t = max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+        return ((px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2) ** 0.5
+    pila, quedan = [(0, len(puntos) - 1)], {0, len(puntos) - 1}
+    while pila:
+        i, j = pila.pop()
+        mejor, k = 0, None
+        for m in range(i + 1, j):
+            d = dist(puntos[m], puntos[i], puntos[j])
+            if d > mejor:
+                mejor, k = d, m
+        if k is not None and mejor > tolerancia_m:
+            quedan.add(k)
+            pila += [(i, k), (k, j)]
+    return [puntos[i] for i in sorted(quedan)]
+
+
+def codificar(puntos):
+    """Polilínea codificada con precisión 5 (la de Google Maps)."""
+    salida, pla, plo = [], 0, 0
+    for la, lo in puntos:
+        ila, ilo = round(la * 1e5), round(lo * 1e5)
+        for v in (ila - pla, ilo - plo):
+            v = ~(v << 1) if v < 0 else v << 1
+            while v >= 0x20:
+                salida.append(chr((0x20 | (v & 0x1F)) + 63))
+                v >>= 5
+            salida.append(chr(v + 63))
+        pla, plo = ila, ilo
+    return "".join(salida)
+
+
+def formas(z, ids):
+    puntos = {}
+    for r in leer(z, "shapes.txt"):
+        if r["shape_id"] in ids:
+            puntos.setdefault(r["shape_id"], []).append((float(r["shape_pt_sequence"]), float(r["shape_pt_lat"]), float(r["shape_pt_lon"])))
+    return {k: codificar(simplificar([(la, lo) for _, la, lo in sorted(v)])) for k, v in puntos.items()}
+
+
 def laborables(z):
     return {c["service_id"] for c in leer(z, "calendar.txt") if c["wednesday"] == "1"}
 
@@ -66,7 +117,7 @@ def patrones(z, red, prefijo, nombre_parada, nombre_linea):
         claves = [prefijo + nombre_parada(s) for _, s, _ in filas]
         out.append({"red": red, "linea": nombre_linea(rutas[route_id]), "destino": viajes[tid].get("trip_headsign", "").strip(),
                     "cada": max(1, round(cada.get(tid, 900) / 60)), "p": claves,
-                    "t": [round((x - t0) / 60, 1) for _, _, x in filas]})
+                    "t": [round((x - t0) / 60, 1) for _, _, x in filas], "forma": viajes[tid].get("shape_id", "")})
     return out
 
 
@@ -79,6 +130,7 @@ def main(carpeta, salida="web/public/datos/red.json"):
             paradas["e" + p["stop_code"]] = [p["stop_name"].strip(), round(float(p["stop_lat"]), 5), round(float(p["stop_lon"]), 5)]
     codigo_emt = {p["stop_id"]: p["stop_code"] for p in leer(z, "stops.txt")}
     pat = patrones(z, "emt", "e", lambda s: codigo_emt.get(s, s), lambda r: r["route_short_name"].strip())
+    trazados = formas(z, {x["forma"] for x in pat})
     # Metro: andenes par_4_63 -> m4_63, con el nombre bonito del índice de estaciones
     nombres = json.load(open("web/public/datos/paradas_metro.json", encoding="utf-8"))["nombres"]
     z = zipfile.ZipFile(os.path.join(carpeta, "crtm_gtfs_metro.zip"))
@@ -86,14 +138,22 @@ def main(carpeta, salida="web/public/datos/red.json"):
         if p["stop_id"].startswith("par_"):
             c = p["stop_id"][4:]
             paradas["m" + c] = [nombres.get(c, p["stop_name"].title()), round(float(p["stop_lat"]), 5), round(float(p["stop_lon"]), 5)]
-    pat += patrones(z, "metro", "m", lambda s: s[4:] if s.startswith("par_") else s, lambda r: r["route_short_name"].strip())
+    metro = patrones(z, "metro", "m", lambda s: s[4:] if s.startswith("par_") else s, lambda r: r["route_short_name"].strip())
+    trazados.update(formas(z, {x["forma"] for x in metro}))
+    pat += metro
     for x in pat:  # el destino del Metro viene en mayúsculas: se usa el nombre de la última estación
         if x["red"] == "metro" and x["p"][-1] in paradas:
             x["destino"] = paradas[x["p"][-1]][0]
     usadas = {c for x in pat for c in x["p"]}
     paradas = {k: v for k, v in paradas.items() if k in usadas}
+    # el trazado de cada recorrido va aparte (formas.json, alineado con «patrones»): solo se baja para dibujar mapas
+    lista_formas = [trazados.get(x.pop("forma"), "") for x in pat]
     with open(salida, "w", encoding="utf-8", newline="\n") as f:
         json.dump({"paradas": paradas, "patrones": pat}, f, ensure_ascii=False, separators=(",", ":"))
+    ruta_formas = os.path.join(os.path.dirname(salida), "formas.json")
+    with open(ruta_formas, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(lista_formas, f, separators=(",", ":"))
+    print(f"{sum(1 for x in lista_formas if x)} trazados en {ruta_formas}")
     print(f"{len(pat)} recorridos ({sum(1 for x in pat if x['red'] == 'metro')} de Metro), {len(paradas)} paradas en {salida}")
 
 

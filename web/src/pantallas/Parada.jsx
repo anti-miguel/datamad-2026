@@ -4,15 +4,17 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { IconoRed, Linea, Etiqueta, Tarjeta, Volver } from "../componentes/Comunes.jsx";
+import { fondoMapa } from "../lib/mapa.js";
+import { IconoRed, Linea, Etiqueta, Tarjeta, Volver, colorDeLinea } from "../componentes/Comunes.jsx";
 import { IconoEstrella, IconoInfo, IconoAviso, IconoCampana } from "../componentes/Iconos.jsx";
-import { NOMBRE_RED, horaTexto, ventanaEstrecha } from "../lib/util.js";
+import { NOMBRE_RED, horaTexto, ventanaEstrecha, normalizar } from "../lib/util.js";
 import { casillas } from "../lib/ventana.js";
 import { NombreEditable } from "./Rutas.jsx";
 import { incidenciasDelTramo } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
 import { enDirecto } from "../lib/emt.js";
 import { cargarRed } from "../lib/planificador.js";
+import { cargarFormas, decodificar, metrosEntre, puntoA, recorte } from "../lib/formas.js";
 
 // Metro sin tiempo real (el servicio del Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
 function FrecuenciasMetro({ andenes, hora }) {
@@ -61,9 +63,36 @@ function FrecuenciasMetro({ andenes, hora }) {
   );
 }
 
-function Minimapa({ lat, lon }) {
+// Minimapa de la parada: dónde está y, encima, el trozo de recorrido de cada línea que pasa por ella
+// (unas paradas antes y bastantes después, hacia donde va), para ver por dónde sigue y no solo edificios.
+// Recorridos de los horarios oficiales de la EMT y del Metro (datos/red.json); Cercanías e interurbanos aún no.
+const ANTES = 0; // solo hacia donde va: el tramo de llegada duplicaba rayas
+const DESPUES = 3;
+const ZOOM_PARADA = 18; // cerca: se ve en qué acera está la parada y hacia dónde va
+
+// Rumbo en grados (0 = norte) de a hacia b, para girar la flecha del sentido
+function rumbo([la1, lo1], [la2, lo2]) {
+  const r = Math.PI / 180;
+  const y = Math.sin((lo2 - lo1) * r) * Math.cos(la2 * r);
+  const x = Math.cos(la1 * r) * Math.sin(la2 * r) - Math.sin(la1 * r) * Math.cos(la2 * r) * Math.cos((lo2 - lo1) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+
+function clavesDeParada(parada, red) {
+  if (parada.red === "emt" && /^emt-\d+$/.test(parada.id)) return [`e${parada.id.slice(4)}`];
+  if (parada.red === "metro") {
+    if (parada.andenes?.length) return parada.andenes.map((a) => `m${a}`);
+    const nombre = normalizar(parada.nombre);
+    return [...red.paradas.values()].filter((p) => p.red === "metro" && normalizar(p.nombre) === nombre).map((p) => p.clave);
+  }
+  return [];
+}
+
+function Minimapa({ parada }) {
   const caja = useRef(null);
+  const { lat, lon } = parada;
   useEffect(() => {
+    let vivo = true;
     const mapa = L.map(caja.current, {
       center: [lat, lon],
       zoom: 17,
@@ -75,26 +104,72 @@ function Minimapa({ lat, lon }) {
       boxZoom: false,
       keyboard: false,
     });
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "© OpenStreetMap",
-    }).addTo(mapa);
-    L.circleMarker([lat, lon], {
-      radius: 9,
-      color: "#111111",
-      weight: 3,
-      fillColor: "#FFE15A",
-      fillOpacity: 1,
-    }).addTo(mapa);
+    fondoMapa(mapa);
+    const punto = () =>
+      L.circleMarker([lat, lon], { radius: 9, color: "#111111", weight: 3, fillColor: "#FFE15A", fillOpacity: 1 }).addTo(mapa);
+    let marca = punto();
+    Promise.all([cargarRed(), cargarFormas().catch(() => [])])
+      .then(([red, formas]) => {
+        if (!vivo) return;
+        const claves = new Set(clavesDeParada(parada, red));
+        if (!claves.size) return;
+        const trozos = [];
+        const vistos = new Set();
+        red.patrones.forEach((p, pi) => {
+          const i = p.p.findIndex((c) => claves.has(c));
+          if (i < 0 || i === p.p.length - 1) return;
+          const k = `${p.red}${p.linea}${p.p[i + 1]}`; // una vez por línea y sentido
+          if (vistos.has(k)) return;
+          vistos.add(k);
+          const aqui = red.paradas.get(p.p[i]);
+          const siguiente = red.paradas.get(p.p[i + 1]);
+          // por la calle (trazado real) si lo hay; si no, en recto de parada a parada
+          const porCalle = recorte(decodificar(formas[pi]), [aqui.lat, aqui.lon], null, 220, [siguiente.lat, siguiente.lon]);
+          const camino =
+            porCalle ??
+            p.p.slice(Math.max(0, i - ANTES), Math.min(p.p.length, i + DESPUES + 1)).map((c) => {
+              const q = red.paradas.get(c);
+              return [q.lat, q.lon];
+            });
+          trozos.push({ camino, porCalle: Boolean(porCalle), color: colorDeLinea(p.red, p.linea), desde: [aqui.lat, aqui.lon], hacia: [siguiente.lat, siguiente.lon] });
+        });
+        if (!trozos.length) return;
+        for (const t of trozos) L.polyline(t.camino, { color: "#111111", weight: 5.5, opacity: 0.85, interactive: false }).addTo(mapa);
+        for (const t of trozos) L.polyline(t.camino, { color: t.color, weight: 3, opacity: 1, interactive: false }).addTo(mapa);
+        // flecha del sentido: un poco después de la parada, girada hacia la siguiente
+        const direcciones = new Set(); // una flecha por dirección, aunque pasen varias líneas
+        for (const t of trozos) {
+          // a unos 30 m de la parada sobre su camino (cerca con zoom 18), girada hacia donde va
+          const enCalle = t.porCalle ? metrosEntre(t.camino[0], t.camino[1]) : 0; // el tramito de la parada a la calle
+          const sitio = puntoA(t.camino, enCalle + 25) ?? { punto: t.desde, rumbo: rumbo(t.desde, t.hacia) };
+          const sector = Math.round(sitio.rumbo / 30);
+          if (direcciones.has(sector)) continue;
+          direcciones.add(sector);
+          const pos = sitio.punto;
+          const icono = L.divIcon({
+            className: "",
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+            html: `<span class="flecha-sentido" style="transform:rotate(${sitio.rumbo}deg);background:${t.color}">↑</span>`,
+          });
+          L.marker(pos, { icon: icono, interactive: false, keyboard: false }).addTo(mapa);
+        }
+        marca.remove();
+        marca = punto(); // la parada, encima de las líneas
+        mapa.setView([lat, lon], ZOOM_PARADA); // centrado en la parada y cerca, aunque las líneas sigan fuera
+      })
+      .catch(() => {});
     // Si cambia el ancho (girar el móvil), el mapa se recoloca para no dejar zonas grises
     const observador = new ResizeObserver(() => mapa.invalidateSize());
     observador.observe(caja.current);
     return () => {
+      vivo = false;
       observador.disconnect();
       mapa.remove();
     };
-  }, [lat, lon]);
-  return <div ref={caja} className="pegatina h-[150px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la parada" />;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lat, lon, parada.id]);
+  return <div ref={caja} className="mapa-yavoy pegatina h-[180px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la parada y de las líneas que pasan por ella" />;
 }
 
 // Tarjetas grises vacías mientras carga fiabilidad.json
@@ -327,6 +402,34 @@ export default function Parada({
   const tipoDia = contexto.finde ? "Fin de semana" : "Laborable";
   const propio = nombre && nombre !== parada.nombre;
 
+  // «¿Dónde te bajas?» también en las paradas que no son de la demo: las paradas siguientes de cada línea
+  // y los minutos hasta cada una, de los horarios oficiales (datos/red.json). Mismo formato que demo.json.
+  const [recorridosVivos, setRecorridosVivos] = useState({});
+  useEffect(() => {
+    let activo = true;
+    cargarRed()
+      .then((red) => {
+        const claves = new Set(clavesDeParada(parada, red));
+        if (!claves.size) return;
+        const out = {};
+        for (const p of red.patrones) {
+          const i = p.p.findIndex((c) => claves.has(c));
+          if (i < 0 || i === p.p.length - 1 || out[p.linea]) continue;
+          out[p.linea] = p.p.slice(i + 1).map((c, k) => ({
+            codigo: c.slice(1),
+            nombre: red.paradas.get(c).nombre,
+            minutos: Math.max(1, Math.round(p.t[i + 1 + k] - p.t[i])),
+          }));
+        }
+        if (activo) setRecorridosVivos(out);
+      })
+      .catch(() => {});
+    return () => {
+      activo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parada.id]);
+
   // Agrupa las llegadas por línea, en el orden en que llega la primera de cada una
   const porLinea = [];
   [...llegadas]
@@ -371,7 +474,7 @@ export default function Parada({
         </div>
       </div>
 
-      {parada.lat != null && parada.lon != null && <Minimapa lat={parada.lat} lon={parada.lon} />}
+      {parada.lat != null && parada.lon != null && <Minimapa parada={parada} />}
 
       {!parada.vivo && enDirecto() && !cargando && !error && (
         <p className="rounded-xl border-2 border-[#111] bg-aviso-simulado px-3 py-2 text-[15px] text-[#111]">
@@ -397,7 +500,7 @@ export default function Parada({
               llegadas={g.llegadas}
               red={parada.red}
               primera={i === 0}
-              recorrido={parada.recorridos?.[g.linea]}
+              recorrido={parada.recorridos?.[g.linea] ?? recorridosVivos[g.linea]}
               avisosLinea={avisos.filter((a) => a.linea === g.linea)}
               bajada={bajada}
               onBajada={onBajada}

@@ -7,6 +7,8 @@ import { NOMBRE_RED, normalizar } from "../lib/util.js";
 import { EscenaSegunModo } from "../componentes/Escena.jsx";
 import { Logo } from "../componentes/Logo.jsx";
 import TarjetaAbono from "../componentes/Abono.jsx";
+import { TarjetaLinea, buscarLineas, lineasDeRed } from "../componentes/LineaBuscada.jsx";
+import { cargarRed } from "../lib/planificador.js";
 
 const FILTROS = [
   { id: "todo", texto: "Todo" },
@@ -156,6 +158,7 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
   const [cerca, setCerca] = useState(null); // { estado, nuestras, emt }
   const [emtTodas, setEmtTodas] = useState(null); // null = sin cargar, "error" o la lista
   const [metroTodas, setMetroTodas] = useState(null);
+  const [lineasTodas, setLineasTodas] = useState(null);
 
   function buscarCerca() {
     if (!navigator.geolocation) return setCerca({ estado: "sin-gps", nuestras: [], emt: [] });
@@ -208,6 +211,35 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
       .then((ix) => setMetroTodas(ix.estaciones.filter((e) => !esNuestraMetro(demo, e)).map((e) => ({ ...e, clave: normalizar(e.nombre) }))))
       .catch(() => setMetroTodas("error"));
   }, [buscando, metroTodas, demo]);
+
+  // Líneas («87», «N1», «5»): al buscar un número se espera la línea, no la parada que se llama así
+  useEffect(() => {
+    if (!buscando || Array.isArray(lineasTodas)) return;
+    cargarRed()
+      .then((red) => setLineasTodas(lineasDeRed(red)))
+      .catch(() => setLineasTodas("error"));
+  }, [buscando, lineasTodas]);
+  const resultadosLineas = useMemo(
+    () => (buscando && Array.isArray(lineasTodas) ? buscarLineas(lineasTodas, busqueda).filter((l) => filtro === "todo" || l.red === filtro) : []),
+    [buscando, lineasTodas, busqueda, filtro],
+  );
+
+  // Abrir una parada desde la lista de una línea: la de la EMT en directo, o la estación de Metro
+  async function abrirDesdeLinea(p, l) {
+    if (p.red === "emt") {
+      const num = p.clave.slice(1);
+      return onAbrirParada(`emt-${num}`, paradaEmtViva({ id: num, nombre: p.nombre, lat: p.lat, lon: p.lon, lineas: l ? [l.linea] : [] }));
+    }
+    const nuestra = todas.find((x) => x.red === "metro" && normalizar(x.nombre) === normalizar(p.nombre));
+    if (nuestra) return onAbrirParada(nuestra.id);
+    try {
+      const ix = await cargarIndiceMetro();
+      const e = ix.estaciones.find((x) => normalizar(x.nombre) === normalizar(p.nombre));
+      if (e) onAbrirParada(`metro-${e.id}`, paradaMetroViva(e));
+    } catch {
+      // sin índice de Metro no se puede abrir
+    }
+  }
 
   const conMetro = ["todo", "metro"].includes(filtro);
   const resultadosMetro = useMemo(() => {
@@ -311,6 +343,11 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
         />
       ) : buscando ? (
         <section className="space-y-3" aria-live="polite">
+          {resultadosLineas.length > 0 && <h2 className="pt-1 text-[16px] font-bold text-tinta-2">Líneas</h2>}
+          {resultadosLineas.map((l) => (
+            <TarjetaLinea key={l.clave} l={l} onAbrirParada={abrirDesdeLinea} />
+          ))}
+          {resultadosLineas.length > 0 && resultados.length > 0 && <h2 className="pt-1 text-[16px] font-bold text-tinta-2">Paradas</h2>}
           {resultados.map((p) => (
             <TarjetaParada key={p.id} parada={p} favorita={favoritas.includes(p.id)} nombre={nombres[p.id]} onAbrir={() => onAbrirParada(p.id)} />
           ))}
@@ -340,10 +377,10 @@ export default function Paradas({ demo, todas, recientes = [], favoritas, nombre
               />
             );
           })}
-          {resultados.length === 0 && resultadosEmt.length === 0 && resultadosMetro.length === 0 && ((emtTodas === null && conEmt) || (metroTodas === null && conMetro)) && (
+          {resultados.length === 0 && resultadosEmt.length === 0 && resultadosMetro.length === 0 && resultadosLineas.length === 0 && ((emtTodas === null && conEmt) || (metroTodas === null && conMetro)) && (
             <div className="h-[90px] animate-pulse rounded-2xl bg-linea" aria-label="Buscando" />
           )}
-          {resultados.length === 0 && resultadosEmt.length === 0 && resultadosMetro.length === 0 && (emtTodas !== null || !conEmt) && (metroTodas !== null || !conMetro) && (
+          {resultados.length === 0 && resultadosEmt.length === 0 && resultadosMetro.length === 0 && resultadosLineas.length === 0 && (emtTodas !== null || !conEmt) && (metroTodas !== null || !conMetro) && (
             <p className="text-[15px] text-suave">
               No encontramos esa parada. Buscamos en nuestras paradas medidas, en todas las paradas de autobús de la EMT (por nombre o número) y en las estaciones de Metro.
             </p>

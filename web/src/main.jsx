@@ -8,9 +8,12 @@ import "@fontsource/space-grotesk/latin-500.css";
 import "@fontsource/space-grotesk/latin-700.css";
 import "./index.css";
 import App from "./App.jsx";
+import Fallo from "./componentes/Fallo.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <App />
+    <Fallo>
+      <App />
+    </Fallo>
   </StrictMode>,
 );

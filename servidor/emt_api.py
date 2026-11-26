@@ -170,8 +170,11 @@ def llegadas(parada):
                 continue  # lanzaderas internas de la EMT
             if seg is None or seg > 7200:  # 999999 = sin estimación; más de 2 h no es una llegada real
                 continue
-            out.append({"linea": str(a.get("line")), "destino": a.get("destination") or "",
-                        "minutos": max(0, round(seg / 60))})
+            fila = {"linea": str(a.get("line")), "destino": a.get("destination") or "", "minutos": max(0, round(seg / 60))}
+            coords = (a.get("geometry") or {}).get("coordinates") or []
+            if len(coords) == 2 and coords[0] and coords[1]:  # posición GPS del autobús, para el mapa en directo
+                fila.update(lon=round(coords[0], 5), lat=round(coords[1], 5), bus=a.get("bus"))
+            out.append(fila)
         out.sort(key=lambda x: x["minutos"])
         return {"parada": parada, "llegadas": out, "hora": int(time.time())}
     return _cacheado(("ll", parada), LLEGADAS_TTL_S, pedir)

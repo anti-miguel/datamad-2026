@@ -10,6 +10,12 @@ const COLOR_METRO = {
   9: ["#A3268E", "#fff"], 10: ["#1B4D9C", "#fff"], 11: ["#00A04F", "#fff"], 12: ["#B5A21B", "#111"],
 };
 
+// Color de una línea en mapas y dibujos: el de su red, y en Metro el de cada línea
+export function colorDeLinea(red, linea) {
+  if (red === "metro") return COLOR_METRO[linea]?.[0] ?? "#3A4558";
+  return { emt: "#2335F5", interurbano: "#3F8F1E", renfe: "#C8102E" }[red] ?? "#2335F5";
+}
+
 // Número de línea en una píldora: EMT azul, interurbano verde, Cercanías rojo y metro con el color de su línea
 export function Linea({ linea, red = "emt", grande = false }) {
   let fondo = "#2335F5";

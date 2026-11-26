@@ -7,6 +7,7 @@ import {
 } from "../componentes/Iconos.jsx";
 import { calcularRuta, cadenaDeLineas, horaDeSalida, salirEn } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
+import { Paso, Hito } from "../componentes/Pasos.jsx";
 import { ventanaEstrecha } from "../lib/util.js";
 import { OpcionesPlan, SelectorPunto } from "../componentes/Planificador.jsx";
 import Vagones from "../componentes/Vagones.jsx";
@@ -173,9 +174,40 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
   // ahorro según tu experiencia (lo apuntas tú en la ruta); si no hay, el que sale de los datos
   const ahorro = tuya?.ahorro_experiencia ?? (cTuya?.total && cPlan?.total ? cPlan.total.hasta - cTuya.total.hasta : 0);
   const deExperiencia = tuya?.ahorro_experiencia != null;
+  // Cuándo: «Salir ahora», «Salir a las…» o «Llegar antes de las…». Se elige antes de buscar porque cambia
+  // qué hay (de madrugada no hay Metro) y cada cuánto pasa. Con «llegar», se calcula para una salida ~45 min antes.
+  const ahoraTexto = () => {
+    const d = new Date(Date.now() + 15 * 60000);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+  const [momento, setMomento] = useState({ tipo: "ahora", hora: ahoraTexto() });
+  const [hhM, mmM] = momento.hora.split(":").map(Number);
+  const horaDecimal = hhM + mmM / 60;
+  const contextoPlan =
+    momento.tipo === "ahora" ? contexto : { ...contexto, hora: momento.tipo === "llegar" ? (horaDecimal - 0.75 + 24) % 24 : horaDecimal };
+  const momentoPlan = { ...momento, horaDecimal };
+
+  // Con un viaje iniciado solo se enseña ese viaje (sin buscador, ruta de la demo ni «Mis rutas»)
+  const [enViaje, setEnViaje] = useState(false);
+  // Rutas guardadas desde el planificador («Guardar en Mis rutas»): salen en «Mis rutas» junto a las de la demo
+  const [guardadas, setGuardadas] = useState(() => leerLocal("rutas_guardadas", []));
+  const mismoSitio = (a, b) => a && b && Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lon - b.lon) < 1e-5;
+  const yaGuardada = guardadas.some((g) => mismoSitio(g.desde, desde) && mismoSitio(g.hasta, hasta));
+  function guardarRuta() {
+    if (!desde || !hasta || yaGuardada) return;
+    const nuevas = [{ id: `g${Date.now()}`, nombre: `Hacia ${hasta.nombre}`, desde, hasta }, ...guardadas];
+    setGuardadas(nuevas);
+    guardarLocal("rutas_guardadas", nuevas);
+  }
+  function quitarRuta(id) {
+    const nuevas = guardadas.filter((g) => g.id !== id);
+    setGuardadas(nuevas);
+    guardarLocal("rutas_guardadas", nuevas);
+  }
 
   return (
     <div className="space-y-4">
+      <div hidden={enViaje} className="space-y-4">
       <h1 className="titulo pt-2 text-[32px] text-tinta">¿A dónde vas?</h1>
 
       <Tarjeta className="relative space-y-3 p-4">
@@ -193,7 +225,39 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
           </button>
         </div>
         <SelectorPunto etiqueta="Hasta" valor={hasta} lugares={lugares} onCambiar={setHasta} />
+        <div className="space-y-2 pt-1">
+          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Cuándo">
+            {[
+              ["ahora", "Salir ahora"],
+              ["salir", "Salir a las"],
+              ["llegar", "Llegar antes de"],
+            ].map(([id, texto]) => (
+              <button
+                key={id}
+                role="radio"
+                aria-checked={momento.tipo === id}
+                onClick={() => setMomento((m) => ({ ...m, tipo: id }))}
+                className={`boton-pegatina min-h-[44px] rounded-xl px-1 text-[14px] font-bold leading-tight ${momento.tipo === id ? "bg-principal text-white" : "bg-tarjeta text-tinta"}`}
+              >
+                {texto}
+              </button>
+            ))}
+          </div>
+          {momento.tipo !== "ahora" && (
+            <label className="flex items-center gap-2 text-[15px] font-bold text-tinta">
+              {momento.tipo === "llegar" ? "Llegar antes de las" : "Salir a las"}
+              <input
+                type="time"
+                value={momento.hora}
+                onChange={(e) => e.target.value && setMomento((m) => ({ ...m, hora: e.target.value }))}
+                className="pegatina h-[44px] rounded-lg bg-tarjeta px-2 text-[17px] font-bold"
+                aria-label={momento.tipo === "llegar" ? "Hora a la que quieres llegar" : "Hora a la que quieres salir"}
+              />
+            </label>
+          )}
+        </div>
       </Tarjeta>
+      </div>
 
       {!desde || !hasta ? (
         <p className="text-[16px] text-tinta-2">Elige de dónde sales y a dónde vas.</p>
@@ -201,6 +265,7 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
         <p className="text-[16px] text-tinta-2">Elige un destino distinto del origen.</p>
       ) : (
         <section className="space-y-3" aria-live="polite">
+          <div hidden={enViaje} className="space-y-3">
           {tuya && cTuya && (
             <TarjetaOpcion
               titulo={nombres[`ruta-${tuya.id}`] ?? tuya.nombre}
@@ -224,14 +289,53 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
             />
           )}
           {(tuya || plan) && <h2 className="pt-2 text-[16px] font-bold text-tinta-2">Más opciones con la EMT y el Metro</h2>}
-          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} />
-          {!tuya && plan && (
+          </div>
+          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contextoPlan} momento={momentoPlan} onAbrirParada={onAbrirParada} onViaje={setEnViaje} onGuardar={guardarRuta} guardada={yaGuardada} />
+          {!tuya && plan && !enViaje && (
             <p className="text-[14px] text-tinta-2">¿Conoces un camino mejor? Guárdalo como tu ruta y te lo propondremos primero.</p>
           )}
         </section>
       )}
 
+      <div hidden={enViaje} className="space-y-4">
       <h2 className="titulo pt-2 text-[22px] text-tinta">Mis rutas</h2>
+      {guardadas.map((g) => {
+        const nombre = nombres[`ruta-${g.id}`] ?? g.nombre;
+        return (
+          <Tarjeta key={g.id} className="overflow-hidden">
+            <div className="flex items-start gap-3 p-4 pb-3">
+              <span className="pegatina flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-xl bg-amarillo">
+                <IconoRutas />
+              </span>
+              <div className="min-w-0 flex-1">
+                <NombreEditable
+                  nombre={nombre}
+                  onCambiar={(n) => onRenombrar(`ruta-${g.id}`, n)}
+                  etiqueta={`Cambiar el nombre de la ruta ${nombre}`}
+                  className="titulo text-[19px] text-tinta"
+                />
+                <p className="mt-1 text-[15px] text-suave">
+                  {g.desde.nombre} → {g.hasta.nombre}
+                </p>
+              </div>
+              <button onClick={() => quitarRuta(g.id)} className="min-h-[44px] px-1 text-[14px] font-bold text-suave underline" aria-label={`Quitar ${nombre}`}>
+                Quitar
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                setDesde(g.desde);
+                setHasta(g.hasta);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="flex min-h-[56px] w-full items-center justify-between border-t-[2.5px] border-[#111] bg-hundido px-4 text-left"
+            >
+              <span className="text-[15px] text-tinta-2">Ver cómo ir ahora</span>
+              <span className="cifra text-[20px] text-principal">→</span>
+            </button>
+          </Tarjeta>
+        );
+      })}
       {rutas.map((ruta) => {
         const Icono = ICONOS[ruta.icono] ?? IconoRutas;
         const c = datos ? calcularRuta(datos, ruta, contexto, {}, "segura", demo) : null;
@@ -291,43 +395,12 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
       </button>
 
       <p className="text-[13px] text-suave">Esperas medidas · viajes en metro y andando, aproximados</p>
+      </div>
     </div>
   );
 }
 
 // ───────────────────────── Detalle de una ruta ─────────────────────────
-
-function Paso({ color, children, punteado = false }) {
-  return (
-    <div className="relative flex gap-3">
-      <div className="flex w-[28px] shrink-0 flex-col items-center">
-        <div
-          className="min-h-[24px] w-[6px] flex-1"
-          style={
-            punteado
-              ? { backgroundImage: "radial-gradient(#111 1.6px, transparent 1.8px)", backgroundSize: "6px 9px", backgroundRepeat: "repeat-y" }
-              : { background: color, border: "2px solid #111", borderRadius: 4 }
-          }
-        />
-      </div>
-      <div className="min-w-0 flex-1 pb-3">{children}</div>
-    </div>
-  );
-}
-
-function Hito({ texto, sub, final = false }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex w-[28px] justify-center">
-        <div className={`h-[20px] w-[20px] rounded-full border-[3px] border-[#111] ${final ? "bg-amarillo" : "bg-tarjeta"}`} />
-      </div>
-      <div>
-        <p className="text-[17px] font-bold text-tinta">{texto}</p>
-        {sub && <p className="text-[14px] text-suave">{sub}</p>}
-      </div>
-    </div>
-  );
-}
 
 const COLOR_TRAMO = { emt: "#2335F5", interurbano: "#3F8F1E", renfe: "#C8102E" };
 const COLOR_METRO = { 1: "#38A3DC", 2: "#E2231A", 5: "#9BBF2B", 6: "#9AA0A6", 9: "#A3268E" };

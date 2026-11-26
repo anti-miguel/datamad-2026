@@ -75,6 +75,7 @@ function tramoViaje(red, pi, i, j) {
   const pat = red.patrones[pi];
   return {
     tipo: "viaje",
+    pi, // índice del recorrido, para el trazado por las calles (formas.json)
     red: pat.red,
     linea: pat.linea,
     destino: pat.destino,
@@ -83,6 +84,13 @@ function tramoViaje(red, pi, i, j) {
     hasta: red.paradas.get(pat.p[j]),
     paradas: j - i,
     minutos: Math.max(1, Math.round(pat.t[j] - pat.t[i])),
+    // paradas entre medias (sin la de subida ni la de bajada), para los pasos
+    entreMedias: pat.p.slice(i + 1, j).map((c) => red.paradas.get(c).nombre),
+    // recorrido parada a parada, para el mapa en directo
+    camino: pat.p.slice(i, j + 1).map((c) => {
+      const p = red.paradas.get(c);
+      return [p.lat, p.lon];
+    }),
   };
 }
 
