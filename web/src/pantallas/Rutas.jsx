@@ -8,6 +8,7 @@ import {
 import { calcularRuta, cadenaDeLineas, horaDeSalida, salirEn } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
 import { ventanaEstrecha } from "../lib/util.js";
+import { OpcionesPlan, SelectorPunto } from "../componentes/Planificador.jsx";
 import Vagones from "../componentes/Vagones.jsx";
 
 const ICONOS = { uni: IconoUni, trabajo: IconoTrabajo, casa: IconoCasa };
@@ -152,10 +153,16 @@ function TarjetaOpcion({ titulo, sello, ruta, calculo, onAbrir, destacada, ahorr
   );
 }
 
-export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbrir, onCasoMedido }) {
+export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbrir, onCasoMedido, onAbrirParada }) {
   const lugares = demo.lugares ?? [];
-  const [origen, setOrigen] = useState("casa");
-  const [destino, setDestino] = useState("uni");
+  const puntoDe = (id) => {
+    const l = lugares.find((x) => x.id === id);
+    return l ? { nombre: l.nombre, detalle: l.detalle, lat: l.lat, lon: l.lon, lugar: l.id } : null;
+  };
+  const [desde, setDesde] = useState(() => puntoDe("casa"));
+  const [hasta, setHasta] = useState(() => puntoDe("uni"));
+  const origen = desde?.lugar ?? null;
+  const destino = hasta?.lugar ?? null;
   const rutas = demo.rutas ?? [];
   const planes = demo.planificador ?? [];
 
@@ -172,12 +179,12 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
       <h1 className="titulo pt-2 text-[32px] text-tinta">¿A dónde vas?</h1>
 
       <Tarjeta className="relative space-y-3 p-4">
-        <SelectorLugar id="lugar-desde" etiqueta="Desde" valor={origen} lugares={lugares} onCambiar={setOrigen} />
+        <SelectorPunto etiqueta="Desde" valor={desde} lugares={lugares} onCambiar={setDesde} />
         <div className="flex justify-center">
           <button
             onClick={() => {
-              setOrigen(destino);
-              setDestino(origen);
+              setDesde(hasta);
+              setHasta(desde);
             }}
             aria-label="Intercambiar origen y destino"
             className="boton-pegatina flex h-[40px] min-w-[120px] items-center justify-center gap-1 rounded-full bg-amarillo px-4 text-[15px] font-bold"
@@ -185,10 +192,12 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
             ⇅ Dar la vuelta
           </button>
         </div>
-        <SelectorLugar id="lugar-hasta" etiqueta="Hasta" valor={destino} lugares={lugares} onCambiar={setDestino} />
+        <SelectorPunto etiqueta="Hasta" valor={hasta} lugares={lugares} onCambiar={setHasta} />
       </Tarjeta>
 
-      {origen === destino ? (
+      {!desde || !hasta ? (
+        <p className="text-[16px] text-tinta-2">Elige de dónde sales y a dónde vas.</p>
+      ) : desde.lat === hasta.lat && desde.lon === hasta.lon ? (
         <p className="text-[16px] text-tinta-2">Elige un destino distinto del origen.</p>
       ) : (
         <section className="space-y-3" aria-live="polite">
@@ -214,12 +223,8 @@ export function ListaRutas({ demo, datos, contexto, nombres, onRenombrar, onAbri
               onAbrir={() => onAbrir(plan.id)}
             />
           )}
-          {!tuya && !plan && (
-            <Tarjeta className="p-4">
-              <p className="text-[16px] font-bold text-tinta">En la demo solo hay rutas preparadas desde Casa.</p>
-              <p className="mt-1 text-[14px] text-suave">En la versión real, el planificador calcularía cualquier trayecto.</p>
-            </Tarjeta>
-          )}
+          {(tuya || plan) && <h2 className="pt-2 text-[16px] font-bold text-tinta-2">Más opciones con la EMT y el Metro</h2>}
+          <OpcionesPlan desde={desde} hasta={hasta} datos={datos} contexto={contexto} onAbrirParada={onAbrirParada} />
           {!tuya && plan && (
             <p className="text-[14px] text-tinta-2">¿Conoces un camino mejor? Guárdalo como tu ruta y te lo propondremos primero.</p>
           )}

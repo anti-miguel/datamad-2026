@@ -1,6 +1,6 @@
 // Llegadas en directo de la EMT y paradas cercanas, a través de la pasarela del servidor (servidor/emt_api.py).
 // Las credenciales de MobilityLabs se quedan en el servidor. Si la pasarela no responde, la app sigue con los minutos de la demo.
-const BASE = import.meta.env.BASE_URL;
+const BASE = import.meta.env?.BASE_URL ?? "/";
 
 async function pedir(ruta) {
   const r = await fetch(`${BASE}api/${ruta}`);

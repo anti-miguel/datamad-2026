@@ -442,6 +442,7 @@ export default function App() {
           <section id="pantalla-rutas">
             <ListaRutas
               demo={demo}
+              onAbrirParada={abrirParada}
               onCasoMedido={() => {
                 setSeg((s) => ({ ...s, destino: true, modo: "destino" }));
                 setPantalla("salgo");

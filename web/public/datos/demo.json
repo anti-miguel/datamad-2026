@@ -1016,22 +1016,22 @@
     {
       "id": "casa",
       "nombre": "Casa",
-      "detalle": "Vicálvaro"
+      "detalle": "Vicálvaro", "lat": 40.4165, "lon": -3.6095
     },
     {
       "id": "uni",
       "nombre": "UDIT",
-      "detalle": "C. Alcalá, 506 · Suanzes"
+      "detalle": "C. Alcalá, 506 · Suanzes", "lat": 40.44052, "lon": -3.62719
     },
     {
       "id": "practicas",
       "nombre": "Prácticas",
-      "detalle": "Nuevos Ministerios"
+      "detalle": "Nuevos Ministerios", "lat": 40.4466, "lon": -3.692
     },
     {
       "id": "abuela",
       "nombre": "Casa de la abuela",
-      "detalle": "Móstoles"
+      "detalle": "Móstoles", "lat": 40.3223, "lon": -3.865
     }
   ],
   "planificador": [

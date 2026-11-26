@@ -19,6 +19,7 @@ import re
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import defaultdict, deque
 from datetime import datetime
@@ -240,6 +241,37 @@ def metro(andenes):
     return {"llegadas": out, "hora": int(ahora)}
 
 
+# Direcciones y sitios: Nominatim (OpenStreetMap). Su política pide como mucho 1 consulta por segundo,
+# un User-Agent propio y guardar las respuestas: caché de un día y un cerrojo con espera.
+NOMINATIM = ("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=es&bounded=1"
+             "&viewbox=-4.6,41.2,-3.0,40.0&accept-language=es&q={}")
+_cerrojo_osm = threading.Lock()
+_ultima_osm = [0.0]
+
+
+def buscar_sitio(texto):
+    def pedir():
+        with _cerrojo_osm:
+            espera = 1.1 - (time.time() - _ultima_osm[0])
+            if espera > 0:
+                time.sleep(espera)
+            _ultima_osm[0] = time.time()
+            req = urllib.request.Request(NOMINATIM.format(urllib.parse.quote(texto)),
+                                         headers={"User-Agent": "YaVoy/1.0 (demo de la final de DATAMAD 2026)"})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    d = json.load(r)
+            except (ValueError, OSError) as ex:
+                raise RuntimeError("el buscador de direcciones no responde") from ex
+        out = []
+        for x in d:
+            partes = [p.strip() for p in (x.get("display_name") or "").split(",")]
+            out.append({"nombre": ", ".join(partes[:2]), "detalle": ", ".join(partes[2:4]),
+                        "lat": round(float(x["lat"]), 5), "lon": round(float(x["lon"]), 5)})
+        return {"sitios": out}
+    return _cacheado(("osm", texto.lower()), 86400, pedir)
+
+
 class Manejador(BaseHTTPRequestHandler):
     server_version = "yavoy-api"
 
@@ -279,6 +311,11 @@ class Manejador(BaseHTTPRequestHandler):
         if not self._ip_ok():
             return self._responder(429, {"error": "demasiadas consultas, espera un minuto"})
         try:
+            if ruta == "buscar":
+                texto = " ".join(q.get("q", [""])[0].split())[:80]
+                if len(texto) < 3:
+                    return self._responder(400, {"error": "escribe al menos 3 letras"})
+                return self._responder(200, buscar_sitio(texto))
             if ruta == "metro":
                 andenes = [a for a in q.get("andenes", [""])[0].split(",") if a]
                 if not andenes or len(andenes) > 6 or not all(re.fullmatch(r"4_\d{1,4}", a) for a in andenes):
