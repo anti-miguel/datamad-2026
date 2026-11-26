@@ -234,7 +234,8 @@ function TramoDibujado({ recorrido, fin, incidencias, subida }) {
 }
 
 function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado, fuente = "la app" }) {
-  const [a, b] = llegadas;
+  // Los minutos del Metro son fiables: se enseña su número, sin ventana ni etiqueta
+  const [a, b] = red === "metro" ? llegadas.map((x) => x && { ...x, v: null, r: null, lejos: false }) : llegadas;
   const [destinoSel, setDestinoSel] = useState(bajada?.linea === linea ? bajada.codigo : "");
   const parada = recorrido?.find((p) => p.codigo === destinoSel);
   const avisando = bajada?.linea === linea && bajada.codigo === destinoSel;
@@ -279,7 +280,7 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
 
         {b && (
           <p className="mt-3 rounded-lg bg-hundido px-3 py-2 text-[15px] text-tinta-2">
-            El siguiente: <span className="font-bold text-tinta">{b.v ? (ventanaEstrecha(b.v) ? `en ${b.minutos} min` : `entre ${b.v.desde} y ${b.v.hasta} min`) : `${b.minutos} min según ${fuente}`}</span>
+            El siguiente: <span className="font-bold text-tinta">{b.v ? (ventanaEstrecha(b.v) ? `en ${b.minutos} min` : `entre ${b.v.desde} y ${b.v.hasta} min`) : red === "metro" ? `en ${b.minutos} min` : `${b.minutos} min según ${fuente}`}</span>
           </p>
         )}
       </div>
@@ -537,7 +538,7 @@ export default function Parada({
               ? parada.red === "metro" && parada.sinDirecto
                 ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial del Metro · Fuente: Consorcio Regional de Transportes de Madrid`
                 : parada.red === "metro" || parada.red === "interurbano"
-                ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Consorcio, se actualizan cada 15 s · ventanas medidas · Fuente: Consorcio Regional de Transportes de Madrid`
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Consorcio, se actualizan cada 15 s${parada.red === "metro" ? "" : " · ventanas medidas"} · Fuente: Consorcio Regional de Transportes de Madrid`
                 : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo de la EMT, se actualizan cada 15 s · ventanas medidas · Powered by EMT de Madrid`
               : `${tipoDia}, ${horaTexto(contexto.hora)} · minutos de la app de demostración, ventanas medidas`}
           </p>
