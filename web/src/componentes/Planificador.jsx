@@ -460,7 +460,11 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const total = modo === "rapida" ? o.total : o.peor; // con prisa, el tiempo normal; lo seguro, el peor caso medido
+  // «Arriesgado» y el selector «Lo más seguro / Voy con prisa» solo tienen sentido si la ruta lleva algo que de verdad
+  // se retrasa (el bus) y el peor caso añade al menos 5 min. El Metro casi nunca falla en llegar: su problema es que va lleno.
+  const soloMetro = o.tramos.every((t) => t.tipo !== "viaje" || t.red === "metro");
+  const hayRiesgo = !soloMetro && o.peor - o.total >= 5;
+  const total = hayRiesgo && modo === "rapida" ? o.total : o.peor; // con prisa, el tiempo normal; lo seguro, el peor caso medido
   const salAntes = primerBus != null ? primerBus - andarAntes : null;
   // la hora se eligió antes de buscar: «llegar antes de» -> a qué hora salir; «salir a» o «ahora» -> a qué hora llegas
   const horaPedida = momento?.tipo === "ahora" ? contexto?.hora ?? 0 : momento?.horaDecimal ?? contexto?.hora ?? 0;
@@ -484,7 +488,7 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
         <p className="mt-1 text-[15px]">
           El viaje dura {o.total === o.peor ? `${o.total} min` : `${o.total}–${o.peor} min`} · {o.transbordos === 1 ? "1 transbordo" : `${o.transbordos} transbordos`}
         </p>
-        {modo === "rapida" && o.peor > o.total && (
+        {hayRiesgo && modo === "rapida" && (
           <p className="mt-2 inline-block rounded-md border-2 border-[#111] bg-rojo px-2 py-0.5 text-[14px] font-bold text-white">
             Arriesgado: solo llegas si todo va bien
           </p>
@@ -506,7 +510,8 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
         </Tarjeta>
       )}
 
-      {/* modo «voy con prisa» (como en las rutas de la demo) */}
+      {/* modo «voy con prisa» (como en las rutas de la demo), solo si hay riesgo de verdad */}
+      {hayRiesgo && (
       <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Cómo quieres ir">
         {[
           { id: "segura", t: "Lo más seguro", s: "llega antes en el peor caso" },
@@ -524,6 +529,7 @@ function Viaje({ o, primera, datos, contexto, onAbrirParada, desde, hasta, onSal
           </button>
         ))}
       </div>
+      )}
 
       <Tarjeta sombra className="space-y-2 p-4">
         <Resumen o={o} primera={primera} datos={datos} contexto={contexto} />
