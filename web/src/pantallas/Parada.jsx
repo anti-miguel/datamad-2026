@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { fondoMapa } from "../lib/mapa.js";
 import { IconoRed, Linea, Etiqueta, Tarjeta, Volver } from "../componentes/Comunes.jsx";
 import { IconoEstrella, IconoInfo, IconoAviso, IconoCampana } from "../componentes/Iconos.jsx";
 import { NOMBRE_RED, horaTexto, ventanaEstrecha } from "../lib/util.js";
@@ -75,10 +76,7 @@ function Minimapa({ lat, lon }) {
       boxZoom: false,
       keyboard: false,
     });
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "© OpenStreetMap",
-    }).addTo(mapa);
+    fondoMapa(mapa);
     L.circleMarker([lat, lon], {
       radius: 9,
       color: "#111111",
@@ -94,7 +92,7 @@ function Minimapa({ lat, lon }) {
       mapa.remove();
     };
   }, [lat, lon]);
-  return <div ref={caja} className="pegatina h-[150px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la parada" />;
+  return <div ref={caja} className="mapa-yavoy pegatina h-[150px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la parada" />;
 }
 
 // Tarjetas grises vacías mientras carga fiabilidad.json

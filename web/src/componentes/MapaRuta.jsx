@@ -7,6 +7,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { colorDeLinea } from "./Comunes.jsx";
 import { enDirecto, llegadasEmt } from "../lib/emt.js";
+import { fondoMapa } from "../lib/mapa.js";
 
 const CADA_MS = 20000;
 const MAX_BUSES_TRAMO = 3;
@@ -28,7 +29,7 @@ export default function MapaRuta({ opcion, desde, hasta }) {
   useEffect(() => {
     const mapa = L.map(caja.current, { preferCanvas: true, zoomControl: true, scrollWheelZoom: false, tap: true });
     mapaRef.current = mapa;
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
+    fondoMapa(mapa);
     const todos = [];
     if (desde?.lat != null) todos.push([desde.lat, desde.lon]);
     if (hasta?.lat != null) todos.push([hasta.lat, hasta.lon]);
@@ -84,14 +85,14 @@ export default function MapaRuta({ opcion, desde, hasta }) {
       capa?.clearLayers();
       const buses = grupos.flat().filter(Boolean);
       for (const b of buses) {
-        L.circleMarker([b.lat, b.lon], { radius: 11, color: "#111", weight: 3, fillColor: colorDeLinea("emt", b.linea), fillOpacity: 1 })
-          .bindTooltip(`${b.linea} · ${b.minutos <= 1 ? "llegando" : `a ${b.minutos} min de ${b.t.desde.nombre}`}`, {
-            permanent: true,
-            direction: "top",
-            offset: [0, -10],
-            className: "etiqueta-bus",
-          })
-          .addTo(capa);
+        const minutos = b.minutos <= 1 ? "ya" : `${b.minutos}′`;
+        const icono = L.divIcon({
+          className: "",
+          iconSize: null,
+          iconAnchor: [14, 14],
+          html: `<span class="bus-mapa"><span class="bus-mapa-linea" style="background:${colorDeLinea("emt", b.linea)}">${b.linea}</span><span class="bus-mapa-min">${minutos}</span></span>`,
+        });
+        L.marker([b.lat, b.lon], { icon: icono, keyboard: false, title: `${b.linea}, a ${b.minutos} min de ${b.t.desde.nombre}` }).addTo(capa);
       }
       const hora = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       setEstado(
@@ -116,7 +117,7 @@ export default function MapaRuta({ opcion, desde, hasta }) {
 
   return (
     <div className="space-y-1.5">
-      <div ref={caja} className="pegatina h-[260px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la ruta con los autobuses en directo" />
+      <div ref={caja} className="mapa-yavoy pegatina h-[260px] overflow-hidden rounded-2xl" role="img" aria-label="Mapa de la ruta con los autobuses en directo" />
       <p className="text-[13px] text-tinta-2" aria-live="polite">
         {estado}
       </p>
