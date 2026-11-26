@@ -195,7 +195,7 @@ const ventanaTexto = (l) =>
       ? ventanaEstrecha(l.v)
         ? `Llega en ${l.minutos} min`
         : `Llega entre ${l.v.desde} y ${l.v.hasta} min`
-      : "Sin datos suficientes";
+      : `Llega en ${l.minutos} min`; // sin medida: lo que dice la fuente, tal cual
 
 // Una tarjeta por línea: la siguiente llegada en grande y la de después en pequeño
 // Tramo dibujado parada a parada, desde la de subida hasta la de bajada, con las incidencias en su sitio
@@ -262,12 +262,13 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
         </div>
 
         {/* Si abajo ya sale el minuto exacto, no se repite */}
-        {!(a.v && ventanaEstrecha(a.v)) && (
+        {(a.lejos || (a.v && !ventanaEstrecha(a.v))) && (
           <p className="mt-3 text-[15px] text-suave">
             {fuente === "la app" ? "La app oficial" : fuente.charAt(0).toUpperCase() + fuente.slice(1)} dice {a.minutos} min
           </p>
         )}
-        <p className={`cifra tabular-nums ${a.v && ventanaEstrecha(a.v) ? "mt-3" : "mt-1"} ${primera ? "text-[32px]" : "text-[26px]"}`}>{ventanaTexto(a)}</p>
+        <p className={`cifra tabular-nums ${a.lejos || (a.v && !ventanaEstrecha(a.v)) ? "mt-1" : "mt-3"} ${primera ? "text-[32px]" : "text-[26px]"}`}>{ventanaTexto(a)}</p>
+        {!a.v && !a.lejos && <p className="mt-1 text-[14px] text-suave">Según {fuente === "la app" ? "la app oficial" : fuente}</p>}
 
         {a.v && (
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">

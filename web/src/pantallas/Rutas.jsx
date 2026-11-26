@@ -418,10 +418,10 @@ function OpcionEspera({ o, elegida, recomendada, onElegir, modo }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[17px] font-bold leading-snug text-tinta">
-          {o.lejos ? "Demasiado lejos para estimar" : o.v ? (ventanaEstrecha(o.v) ? `Pasa en ${o.minutos} min` : `Pasa entre ${o.v.desde} y ${o.v.hasta} min`) : "Sin datos suficientes"}
+          {o.lejos ? "Demasiado lejos para estimar" : o.v ? (ventanaEstrecha(o.v) ? `Pasa en ${o.minutos} min` : `Pasa entre ${o.v.desde} y ${o.v.hasta} min`) : `Pasa en ${o.minutos} min`}
         </span>
         <span className="mt-0.5 block text-[14px] text-suave">
-          {o.desde_parada ? `Desde ${o.desde_parada} · ` : ""}La app dice {o.minutos} min · viaje {o.aproximado ? "≈ " : ""}
+          {o.desde_parada ? `Desde ${o.desde_parada} · ` : ""}{o.v || o.lejos ? `La app dice ${o.minutos} min · ` : ""}viaje {o.aproximado ? "≈ " : ""}
           {o.viaje} min{o.andar_extra ? ` · +${o.andar_extra} min andando` : ""}
         </span>
         {o.incidencias?.enTramo.map((x) => (
