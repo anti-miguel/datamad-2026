@@ -233,7 +233,36 @@ function TramoDibujado({ recorrido, fin, incidencias, subida }) {
   );
 }
 
-function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado, fuente = "la app" }) {
+// El recorrido del sentido que lleva a ese destino (si no se reconoce, el primero)
+function recorridoHacia(lista, destino) {
+  if (!lista?.length) return undefined;
+  const d = normalizar(destino ?? "");
+  return (
+    lista.find((r) => {
+      const fin = normalizar(r[r.length - 1].nombre);
+      return d && (fin.includes(d) || d.includes(fin));
+    }) ?? lista[0]
+  );
+}
+
+// Metro: una tarjeta por línea con botones para cambiar de sentido
+function TarjetaSentidos({ llegadas, recorridos, recorridoFijo, ...resto }) {
+  const destinos = [...new Set(llegadas.map((l) => l.destino))];
+  const [elegido, setElegido] = useState(destinos[0]);
+  const actual = destinos.includes(elegido) ? elegido : destinos[0];
+  return (
+    <TarjetaLinea
+      {...resto}
+      llegadas={llegadas.filter((l) => l.destino === actual)}
+      recorrido={recorridoFijo ?? recorridoHacia(recorridos, actual)}
+      sentidos={[...destinos].sort((a, b) => a.localeCompare(b, "es"))}
+      sentido={actual}
+      onSentido={setElegido}
+    />
+  );
+}
+
+function TarjetaLinea({ linea, llegadas, red, primera, sentidos, sentido, onSentido, recorrido, avisosLinea, bajada, onBajada, onInfo, incidencias, subida, aproximado, fuente = "la app" }) {
   // Los minutos del Metro son fiables: se enseña su número, sin ventana ni etiqueta
   const [a, b] = red === "metro" ? llegadas.map((x) => x && { ...x, v: null, r: null, lejos: false }) : llegadas;
   const [destinoSel, setDestinoSel] = useState(bajada?.linea === linea ? bajada.codigo : "");
@@ -251,7 +280,11 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <Linea linea={linea} red={red} grande />
-            <span className="truncate text-[17px] text-tinta">→ {a.destino}</span>
+            {sentidos?.length > 1 ? (
+              <span className="text-[15px] text-suave">Elige sentido</span>
+            ) : (
+              <span className="truncate text-[17px] text-tinta">→ {a.destino}</span>
+            )}
           </div>
           <button
             onClick={onInfo}
@@ -261,6 +294,22 @@ function TarjetaLinea({ linea, llegadas, red, primera, recorrido, avisosLinea, b
             <IconoInfo />
           </button>
         </div>
+
+        {sentidos?.length > 1 && (
+          <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label={`Sentido del ${linea}`}>
+            {sentidos.map((d) => (
+              <button
+                key={d}
+                role="radio"
+                aria-checked={sentido === d}
+                onClick={() => onSentido(d)}
+                className={`boton-pegatina min-h-[40px] rounded-full px-3 text-[15px] ${sentido === d ? "bg-principal font-bold text-white" : "bg-tarjeta"}`}
+              >
+                → {d}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Si abajo ya sale el minuto exacto, no se repite */}
         {(a.lejos || (a.v && !ventanaEstrecha(a.v))) && (
@@ -422,12 +471,12 @@ export default function Parada({
         const out = {};
         for (const p of red.patrones) {
           const i = p.p.findIndex((c) => claves.has(c));
-          if (i < 0 || i === p.p.length - 1 || out[p.linea]) continue;
-          out[p.linea] = p.p.slice(i + 1).map((c, k) => ({
+          if (i < 0 || i === p.p.length - 1) continue;
+          (out[p.linea] ??= []).push(p.p.slice(i + 1).map((c, k) => ({
             codigo: c.slice(1),
             nombre: red.paradas.get(c).nombre,
             minutos: Math.max(1, Math.round(p.t[i + 1 + k] - p.t[i])),
-          }));
+          })));
         }
         if (activo) setRecorridosVivos(out);
       })
@@ -447,6 +496,8 @@ export default function Parada({
       if (g) g.llegadas.push(l);
       else porLinea.push({ linea: l.linea, llegadas: [l] });
     });
+  // Metro: orden fijo por número de línea, para que las tarjetas no salten cada 15 s mientras eliges sentido
+  if (parada.red === "metro") porLinea.sort((x, y) => x.linea.localeCompare(y.linea, "es", { numeric: true }));
 
   return (
     <div className="space-y-4">
@@ -501,14 +552,32 @@ export default function Parada({
         <ParadaCargando />
       ) : (
         <>
-          {porLinea.map((g, i) => (
+          {porLinea.map((g, i) => (parada.red === "metro" ? (
+            <TarjetaSentidos
+              key={g.linea}
+              linea={g.linea}
+              llegadas={g.llegadas}
+              red={parada.red}
+              primera={i === 0}
+              recorridos={recorridosVivos[g.linea]}
+              recorridoFijo={parada.recorridos?.[g.linea]}
+              avisosLinea={avisos.filter((a) => a.linea === g.linea)}
+              bajada={bajada}
+              onBajada={onBajada}
+              onInfo={() => onInfoLinea(g.linea)}
+              incidencias={incidencias}
+              subida={parada.nombre}
+              aproximado={parada.recorrido_aproximado}
+              fuente={parada.vivo ? "el Metro" : "la app"}
+            />
+          ) : (
             <TarjetaLinea
               key={g.linea}
               linea={g.linea}
               llegadas={g.llegadas}
               red={parada.red}
               primera={i === 0}
-              recorrido={parada.recorridos?.[g.linea] ?? recorridosVivos[g.linea]}
+              recorrido={parada.recorridos?.[g.linea] ?? recorridoHacia(recorridosVivos[g.linea], g.llegadas[0]?.destino)}
               avisosLinea={avisos.filter((a) => a.linea === g.linea)}
               bajada={bajada}
               onBajada={onBajada}
@@ -518,7 +587,7 @@ export default function Parada({
               aproximado={parada.recorrido_aproximado}
               fuente={parada.vivo ? ({ metro: "el Metro", interurbano: "el Consorcio" }[parada.red] ?? "la EMT") : "la app"}
             />
-          ))}
+          )))}
           {porLinea.length === 0 && parada.red === "metro" && parada.andenes && <FrecuenciasMetro andenes={parada.andenes} hora={contexto.hora} />}
           {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && (
             <Tarjeta className="p-4">
