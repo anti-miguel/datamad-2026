@@ -445,7 +445,7 @@ export default function App() {
                 setLineaSel(l);
                 setPantalla("linea");
               }}
-              cargando={(!datos && !error) || (parada.directa && !directo[parada.id] && enDirecto())}
+              cargando={(!datos && !error) || (parada.directa && consultaDirecto(parada) && !directo[parada.id] && enDirecto())}
               error={error}
               onReintentar={() => setIntento((n) => n + 1)}
             />

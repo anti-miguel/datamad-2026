@@ -12,47 +12,54 @@ import { casillas } from "../lib/ventana.js";
 import { NombreEditable } from "./Rutas.jsx";
 import { incidenciasDelTramo } from "../lib/rutas.js";
 import Combo from "../componentes/Combo.jsx";
-import { enDirecto } from "../lib/emt.js";
+import { distanciaM, enDirecto } from "../lib/emt.js";
 import { cargarRed } from "../lib/planificador.js";
 import { cargarFormas, decodificar, metrosEntre, puntoA, recorte } from "../lib/formas.js";
 
-// Metro sin tiempo real (el servicio del Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
-function FrecuenciasMetro({ andenes, hora }) {
+// Sin tiempo real (Cercanías, o el Metro si el Consorcio no responde): cada cuánto pasa cada línea según el horario oficial
+function FrecuenciasHorario({ claves: lista, red: modo, hora }) {
   const [lineas, setLineas] = useState(null);
   useEffect(() => {
     let activo = true;
     cargarRed()
       .then((red) => {
-        const claves = new Set(andenes.map((a) => `m${a}`));
+        const claves = new Set(lista);
         const vistas = new Map();
         for (const p of red.patrones) {
-          if (p.red !== "metro") continue;
+          if (p.red !== modo) continue;
           const i = p.p.findIndex((c) => claves.has(c));
           if (i < 0 || i === p.p.length - 1) continue; // en la última estación no se sube
           const k = `${p.linea}|${p.destino}`;
           if (!vistas.has(k)) vistas.set(k, { linea: p.linea, destino: p.destino, cada: p.cada });
         }
-        if (activo) setLineas([...vistas.values()].sort((a, b) => a.linea.localeCompare(b.linea, "es", { numeric: true })));
+        // Fuera los servicios sueltos (cada 90 min o más) si la línea tiene otros; «Madrid-Chamartín» → «Chamartín»
+        const todas = [...vistas.values()].map((l) => ({ ...l, destino: l.destino.replace(/^Madrid[\s-]+/i, "") }));
+        const frecuente = new Set(todas.filter((l) => l.cada < 90).map((l) => l.linea));
+        const utiles = todas.filter((l) => l.cada < 90 || !frecuente.has(l.linea));
+        if (activo) setLineas(utiles.sort((a, b) => a.linea.localeCompare(b.linea, "es", { numeric: true })));
       })
       .catch(() => activo && setLineas([]));
     return () => {
       activo = false;
     };
-  }, [andenes.join(",")]);
+  }, [lista.join(",")]);
   if (!lineas?.length) return null;
-  if (hora >= 1.5 && hora < 6)
+  const metro = modo === "metro";
+  if (metro ? hora >= 1.5 && hora < 6 : hora >= 0.25 && hora < 5.5)
     return (
       <Tarjeta className="p-4">
-        <p className="text-[16px] text-tinta">El Metro está cerrado ahora. Abre a las 6:00.</p>
+        <p className="text-[16px] text-tinta">{metro ? "El Metro está cerrado ahora. Abre a las 6:00." : "Cercanías no circula ahora. Empieza hacia las 5:30."}</p>
       </Tarjeta>
     );
   return (
     <Tarjeta className="space-y-2 p-4">
-      <p className="text-[15px] text-tinta-2">Ahora no tenemos los minutos del Metro en directo. Según el horario oficial:</p>
+      <p className="text-[15px] text-tinta-2">
+        {metro ? "Ahora no tenemos los minutos del Metro en directo." : "Cercanías no da los minutos en directo."} Según el horario oficial:
+      </p>
       <ul className="space-y-2">
         {lineas.map((l) => (
           <li key={`${l.linea}${l.destino}`} className="flex items-center gap-3">
-            <Linea linea={l.linea} red="metro" grande />
+            <Linea linea={l.linea} red={modo} grande />
             <span className="text-[16px] text-tinta">
               → {l.destino} · <span className="font-bold">cada {l.cada} min</span>
             </span>
@@ -87,6 +94,7 @@ function clavesDeParada(parada, red) {
   }
   if (parada.red === "interurbano" && parada.codigo) return [`i${parada.codigo}`];
   if (parada.red === "renfe") {
+    if (parada.claves?.length) return parada.claves;
     // la más cercana de Cercanías con ese nombre (las estaciones de Renfe se llaman «Vicálvaro», «Madrid-Atocha»…)
     const nombre = normalizar(parada.nombre);
     return [...red.paradas.values()].filter((p) => p.red === "renfe" && normalizar(p.nombre).includes(nombre)).map((p) => p.clave).slice(0, 2);
@@ -118,6 +126,9 @@ function Minimapa({ parada }) {
       .then(([red, formas]) => {
         if (!vivo) return;
         const claves = new Set(clavesDeParada(parada, red));
+        if (["metro", "renfe"].includes(parada.red))
+          for (const q of red.paradas.values())
+            if ((q.red === "metro" || q.red === "renfe") && q.red !== parada.red && distanciaM(q, parada) < 250) claves.add(q.clave);
         if (!claves.size) return;
         const trozos = [];
         const vistos = new Set();
@@ -588,8 +599,11 @@ export default function Parada({
               fuente={parada.vivo ? ({ metro: "el Metro", interurbano: "el Consorcio" }[parada.red] ?? "la EMT") : "la app"}
             />
           )))}
-          {porLinea.length === 0 && parada.red === "metro" && parada.andenes && <FrecuenciasMetro andenes={parada.andenes} hora={contexto.hora} />}
-          {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && (
+          {porLinea.length === 0 && parada.red === "metro" && parada.andenes && (
+            <FrecuenciasHorario claves={parada.andenes.map((a) => `m${a}`)} red="metro" hora={contexto.hora} />
+          )}
+          {porLinea.length === 0 && parada.red === "renfe" && parada.claves && <FrecuenciasHorario claves={parada.claves} red="renfe" hora={contexto.hora} />}
+          {porLinea.length === 0 && !(parada.red === "metro" && parada.andenes && parada.sinDirecto) && !(parada.red === "renfe" && parada.claves) && (
             <Tarjeta className="p-4">
               <p className="text-[16px] text-tinta">
                 {parada.red === "metro"
@@ -604,7 +618,9 @@ export default function Parada({
           )}
           <p className="text-[13px] text-suave">
             {parada.vivo
-              ? parada.red === "metro" && parada.sinDirecto
+              ? parada.red === "renfe"
+                ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial de Renfe Cercanías`
+                : parada.red === "metro" && parada.sinDirecto
                 ? `${tipoDia}, ${horaTexto(contexto.hora)} · frecuencias del horario oficial del Metro · Fuente: Consorcio Regional de Transportes de Madrid`
                 : parada.red === "metro" || parada.red === "interurbano"
                 ? `${tipoDia}, ${horaTexto(contexto.hora)} · minutos en directo del Consorcio, se actualizan cada 15 s${parada.red === "metro" ? "" : " · ventanas medidas"} · Fuente: Consorcio Regional de Transportes de Madrid`
