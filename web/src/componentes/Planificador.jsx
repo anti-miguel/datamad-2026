@@ -21,6 +21,8 @@ const useVivo = () => useContext(Vivo) && enDirecto();
 // Decimal (8.5) -> "8:30"
 const horaTexto = (h) => `${Math.floor(((h % 24) + 24) % 24)}:${String(Math.round((((h % 1) + 1) % 1) * 60) % 60).padStart(2, "0")}`;
 
+const ETIQUETA_RED = { metro: "Metro", emt: "Parada de bus EMT", interurbano: "Parada de interurbano", renfe: "Cercanías" };
+
 // Lista de nombres de paradas y estaciones sin repetir, para el buscador
 function nombresDeRed(red) {
   const vistos = new Map();
@@ -71,8 +73,8 @@ export function SelectorPunto({ etiqueta, valor, onCambiar, lugares = [] }) {
       if (!red || !palabras.length || texto === valor?.nombre) return [];
       // primero el nombre exacto («sol» → Sol), luego los que empiezan igual, luego los que tienen una palabra que empieza así
       const puntos = (p) =>
-        (p.clave === q ? 0 : p.clave.startsWith(q) ? 1 : p.clave.split(/[\s\-/.]+/).some((w) => w.startsWith(palabras[0])) ? 2 : 3) * 2 +
-        (p.red === "metro" ? 0 : 1);
+        (p.clave === q ? 0 : p.clave.startsWith(q) ? 1 : p.clave.split(/[\s\-/.]+/).some((w) => w.startsWith(palabras[0])) ? 2 : 3) * 4 +
+        ({ metro: 0, renfe: 1, emt: 2, interurbano: 3 }[p.red] ?? 3);
       return red
         .filter((p) => coincide(p.clave))
         .sort((a, b) => puntos(a) - puntos(b) || a.nombre.length - b.nombre.length)
@@ -139,13 +141,13 @@ export function SelectorPunto({ etiqueta, valor, onCambiar, lugares = [] }) {
             </button>
           ))}
           {opcionesRed.map((p) => (
-            <button key={`${p.red}${p.clave}`} onClick={() => elegir({ nombre: p.nombre, detalle: p.red === "metro" ? "Metro" : "Parada de bus EMT", lat: p.lat, lon: p.lon })} className={fila}>
+            <button key={`${p.red}${p.clave}`} onClick={() => elegir({ nombre: p.nombre, detalle: ETIQUETA_RED[p.red], lat: p.lat, lon: p.lon })} className={fila}>
               <span className="origin-left scale-[0.6]">
                 <IconoRed red={p.red} />
               </span>
               <span className="-ml-3 min-w-0">
                 <span className="block font-bold text-tinta">{p.nombre}</span>
-                <span className="block text-[13px] text-suave">{p.red === "metro" ? "Metro" : "Parada de bus EMT"}</span>
+                <span className="block text-[13px] text-suave">{ETIQUETA_RED[p.red]}</span>
               </span>
             </button>
           ))}
@@ -241,7 +243,7 @@ function EsperaTramo({ t, llegasEn, datos, contexto }) {
         <span className="block text-[17px] font-bold leading-snug">{titulo}</span>
         <span className="mt-0.5 block text-[14px] text-tinta-2">
           Desde {t.desde.nombre}
-          {llega ? ` · la EMT dice ${llega.minutos} min` : t.red === "metro" ? " · horario oficial" : ""} · viaje {t.minutos} min
+          {llega ? ` · la EMT dice ${llega.minutos} min` : t.red !== "emt" ? " · horario oficial" : ""} · viaje {t.minutos} min
         </span>
         {c?.r && (
           <span className="mt-1.5 flex flex-wrap items-center gap-2">
@@ -570,7 +572,8 @@ function margenMedido(datos, contexto) {
     const r = datos
       ? consultar(datos, { red: t.red, minutos, hora: contexto?.hora ?? 12, finde: contexto?.finde ?? false, linea: t.linea, tipo: t.red === "metro" ? "estacion" : "intermedia" })
       : null;
-    return r ? Math.max(0, r.p90) : t.red === "metro" ? 1 : 4;
+    if (r) return Math.max(0, r.p90);
+    return { metro: 1, emt: 4, renfe: 6, interurbano: 8 }[t.red] ?? 5;
   };
 }
 

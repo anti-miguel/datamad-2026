@@ -19,7 +19,8 @@ from collections import defaultdict
 
 
 def leer(z, nombre):
-    return csv.DictReader(io.TextIOWrapper(z.open(nombre), encoding="utf-8-sig"))
+    for fila in csv.DictReader(io.TextIOWrapper(z.open(nombre), encoding="utf-8-sig")):
+        yield {(k or "").strip(): (v or "").strip() for k, v in fila.items()}
 
 
 def seg(hhmmss):
@@ -121,6 +122,90 @@ def patrones(z, red, prefijo, nombre_parada, nombre_linea):
     return out
 
 
+DIAS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def servicios_del_dia(z):
+    """Servicios que circulan un día laborable concreto: el jueves con más servicios dentro del calendario."""
+    from datetime import date, timedelta
+    cal = list(leer(z, "calendar.txt"))
+    excepciones = {}
+    if "calendar_dates.txt" in z.namelist():
+        for e in leer(z, "calendar_dates.txt"):
+            excepciones.setdefault(e["date"], []).append((e["service_id"], e["exception_type"]))
+    def activos(d):
+        txt = d.strftime("%Y%m%d")
+        a = {c["service_id"] for c in cal if c["start_date"] <= txt <= c["end_date"] and c.get(DIAS[d.weekday()]) == "1"}
+        for sid, tipo in excepciones.get(txt, []):
+            (a.add if tipo == "1" else a.discard)(sid)
+        return a
+    inicio = min(date(int(c["start_date"][:4]), int(c["start_date"][4:6]), int(c["start_date"][6:])) for c in cal)
+    fin = max(date(int(c["end_date"][:4]), int(c["end_date"][4:6]), int(c["end_date"][6:])) for c in cal)
+    candidatos = [inicio + timedelta(days=i) for i in range(min(60, (fin - inicio).days + 1))]
+    jueves = [d for d in candidatos if d.weekday() == 3] or candidatos
+    return max((activos(d) for d in jueves), key=len)
+
+
+def patrones_por_viajes(z, red, prefijo, nombre_parada, nombre_linea, filtro_ruta=lambda r: True):
+    """Para GTFS sin frecuencias (interurbanos, Renfe), con los viajes de un jueves: por línea y sentido, el recorrido
+    más habitual (el número de paradas más repetido, el viaje más cercano a mediodía) y «cada» = 840 min / viajes de 7 a 21 h."""
+    rutas = {r["route_id"]: r for r in leer(z, "routes.txt") if filtro_ruta(r)}
+    servicios = servicios_del_dia(z)
+    viajes = {t["trip_id"]: t for t in leer(z, "trips.txt") if t["route_id"] in rutas and t["service_id"] in servicios}
+    # 1.ª pasada: primera salida y número de paradas de cada viaje
+    inicio, paradas_n = {}, {}
+    for st in leer(z, "stop_times.txt"):
+        tid = st["trip_id"]
+        if tid not in viajes:
+            continue
+        x = seg(st["departure_time"] or st["arrival_time"])
+        if tid not in inicio or x < inicio[tid]:
+            inicio[tid] = x
+        paradas_n[tid] = paradas_n.get(tid, 0) + 1
+    grupos = {}
+    for tid, t in viajes.items():
+        if tid in inicio:
+            grupos.setdefault((t["route_id"], t.get("direction_id", "")), []).append(tid)
+    elegidos, cada = {}, {}
+    for clave, tids in grupos.items():
+        # cada hora de salida una vez: hay viajes repetidos en calendarios que se solapan
+        n = len({inicio[tid] for tid in tids if 7 * 3600 <= inicio[tid] <= 21 * 3600})
+        cuantas = {}
+        for tid in tids:
+            cuantas[paradas_n[tid]] = cuantas.get(paradas_n[tid], 0) + 1
+        habitual = max(cuantas, key=lambda k: (cuantas[k], k))
+        tid = min((t for t in tids if paradas_n[t] == habitual), key=lambda x: abs(inicio[x] - 12 * 3600))
+        elegidos[tid] = clave[0]
+        cada[tid] = max(3, min(120, round(840 / n))) if n else 60
+    # 2.ª pasada: las paradas de los viajes elegidos
+    paradas = {}
+    for st in leer(z, "stop_times.txt"):
+        if st["trip_id"] in elegidos:
+            paradas.setdefault(st["trip_id"], []).append((int(st["stop_sequence"]), st["stop_id"], seg(st["arrival_time"] or st["departure_time"])))
+    out = []
+    for tid, route_id in elegidos.items():
+        filas = sorted(paradas.get(tid, []))
+        if len(filas) < 2:
+            continue
+        t0 = filas[0][2]
+        out.append({"red": red, "linea": nombre_linea(rutas[route_id]), "destino": viajes[tid].get("trip_headsign", ""),
+                    "cada": cada[tid], "p": [prefijo + nombre_parada(sid) for _, sid, _ in filas],
+                    "t": [round((x - t0) / 60, 1) for _, _, x in filas], "forma": viajes[tid].get("shape_id", "")})
+    return out
+
+
+def tiempos_minimos(pat, paradas, kmh):
+    """Algunos viajes traen tiempos imposibles (Alcalá-Madrid en 13 min): ningún tramo más rápido que «kmh»
+    por la distancia en línea recta entre paradas, con un 25 % de rodeo."""
+    for x in pat:
+        t = [0.0]
+        for k in range(1, len(x["p"])):
+            a, b = paradas.get(x["p"][k - 1]), paradas.get(x["p"][k])
+            metros = (((b[1] - a[1]) * 111000) ** 2 + ((b[2] - a[2]) * 85000) ** 2) ** 0.5 * 1.25 if a and b else 0
+            t.append(t[-1] + max(x["t"][k] - x["t"][k - 1], metros / (kmh * 1000 / 60)))
+        x["t"] = [round(v, 1) for v in t]
+
+
 def main(carpeta, salida="web/public/datos/red.json"):
     paradas = {}
     # EMT: el código de parada del GTFS es el número de la EMT
@@ -141,6 +226,27 @@ def main(carpeta, salida="web/public/datos/red.json"):
     metro = patrones(z, "metro", "m", lambda s: s[4:] if s.startswith("par_") else s, lambda r: r["route_short_name"].strip())
     trazados.update(formas(z, {x["forma"] for x in metro}))
     pat += metro
+    # Interurbanos (bus verde): andenes par_8_09568 -> i8_09568
+    z = zipfile.ZipFile(os.path.join(carpeta, "crtm_gtfs_interurbanos.zip"))
+    for p in leer(z, "stops.txt"):
+        if p["stop_id"].startswith("par_"):
+            paradas["i" + p["stop_id"][4:]] = [p["stop_name"].title(), round(float(p["stop_lat"]), 5), round(float(p["stop_lon"]), 5)]
+    inter = patrones_por_viajes(z, "interurbano", "i", lambda s: s[4:] if s.startswith("par_") else s, lambda r: r["route_short_name"])
+    trazados.update(formas(z, {x["forma"] for x in inter}))
+    pat += inter
+    # Cercanías Madrid (núcleo 10 del GTFS de Renfe, que es de toda España)
+    renfe = sorted(f for f in os.listdir(carpeta) if f.startswith("renfe_gtfs_") and f.endswith(".zip"))[-1]
+    z = zipfile.ZipFile(os.path.join(carpeta, renfe))
+    for p in leer(z, "stops.txt"):
+        paradas["r" + p["stop_id"]] = [p["stop_name"], round(float(p["stop_lat"]), 5), round(float(p["stop_lon"]), 5)]
+    cerc = patrones_por_viajes(z, "renfe", "r", lambda s: s, lambda r: r["route_short_name"], filtro_ruta=lambda r: r["route_id"].startswith("10T"))
+    trazados.update(formas(z, {x["forma"] for x in cerc}))
+    pat += cerc
+    tiempos_minimos(inter, paradas, 40)
+    tiempos_minimos(cerc, paradas, 70)
+    for x in pat:  # Cercanías e interurbanos: el destino, la última parada
+        if x["red"] in ("renfe", "interurbano") and x["p"][-1] in paradas:
+            x["destino"] = paradas[x["p"][-1]][0]
     for x in pat:  # el destino del Metro viene en mayúsculas: se usa el nombre de la última estación
         if x["red"] == "metro" and x["p"][-1] in paradas:
             x["destino"] = paradas[x["p"][-1]][0]

@@ -68,7 +68,7 @@ function FrecuenciasMetro({ andenes, hora }) {
 // Recorridos de los horarios oficiales de la EMT y del Metro (datos/red.json); Cercanías e interurbanos aún no.
 const ANTES = 0; // solo hacia donde va: el tramo de llegada duplicaba rayas
 const DESPUES = 3;
-const ZOOM_PARADA = 18; // cerca: se ve en qué acera está la parada y hacia dónde va
+const ZOOM_PARADA = 17; // cerca: se ve en qué acera está la parada y hacia dónde va
 
 // Rumbo en grados (0 = norte) de a hacia b, para girar la flecha del sentido
 function rumbo([la1, lo1], [la2, lo2]) {
@@ -84,6 +84,12 @@ function clavesDeParada(parada, red) {
     if (parada.andenes?.length) return parada.andenes.map((a) => `m${a}`);
     const nombre = normalizar(parada.nombre);
     return [...red.paradas.values()].filter((p) => p.red === "metro" && normalizar(p.nombre) === nombre).map((p) => p.clave);
+  }
+  if (parada.red === "interurbano" && parada.codigo) return [`i${parada.codigo}`];
+  if (parada.red === "renfe") {
+    // la más cercana de Cercanías con ese nombre (las estaciones de Renfe se llaman «Vicálvaro», «Madrid-Atocha»…)
+    const nombre = normalizar(parada.nombre);
+    return [...red.paradas.values()].filter((p) => p.red === "renfe" && normalizar(p.nombre).includes(nombre)).map((p) => p.clave).slice(0, 2);
   }
   return [];
 }
@@ -124,7 +130,7 @@ function Minimapa({ parada }) {
           const aqui = red.paradas.get(p.p[i]);
           const siguiente = red.paradas.get(p.p[i + 1]);
           // por la calle (trazado real) si lo hay; si no, en recto de parada a parada
-          const porCalle = recorte(decodificar(formas[pi]), [aqui.lat, aqui.lon], null, 220, [siguiente.lat, siguiente.lon]);
+          const porCalle = recorte(decodificar(formas[pi]), [aqui.lat, aqui.lon], null, 400, [siguiente.lat, siguiente.lon]);
           const camino =
             porCalle ??
             p.p.slice(Math.max(0, i - ANTES), Math.min(p.p.length, i + DESPUES + 1)).map((c) => {

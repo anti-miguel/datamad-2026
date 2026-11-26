@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Linea, Tarjeta, IconoRed } from "./Comunes.jsx";
 import { normalizar } from "../lib/util.js";
 
-const NOMBRE = { emt: "Bus EMT", metro: "Metro" };
+const NOMBRE = { emt: "Bus EMT", metro: "Metro", interurbano: "Interurbano", renfe: "Cercanías" };
 
 // Agrupa los recorridos por línea: { clave, red, linea, sentidos: [{ destino, paradas: [...] }] }
 export function lineasDeRed(red) {
@@ -23,7 +23,8 @@ export function buscarLineas(lineas, texto) {
   let q = normalizar(texto).replace(/^(linea|lin|l\.?|metro|bus)\s*/, "").trim();
   q = q.replace(/^0+(?=\d)/, "");
   if (!q || q.length > 4) return [];
-  return lineas.filter((l) => l.buscar === q).sort((a, b) => (a.red === "metro") - (b.red === "metro"));
+  const orden = { emt: 0, interurbano: 1, metro: 2, renfe: 3 };
+  return lineas.filter((l) => l.buscar === q).sort((a, b) => orden[a.red] - orden[b.red]);
 }
 
 export function TarjetaLinea({ l, onAbrirParada }) {
@@ -64,7 +65,11 @@ export function TarjetaLinea({ l, onAbrirParada }) {
           <ol className="space-y-0.5">
             {s.paradas.map((p, i) => (
               <li key={`${p.clave}${i}`}>
-                <button onClick={() => onAbrirParada(p, l)} className="flex min-h-[44px] w-full items-center gap-3 rounded-lg px-1 text-left hover:bg-hundido">
+                <button
+                  onClick={() => onAbrirParada(p, l)}
+                  disabled={!["emt", "metro"].includes(l.red)} // interurbanos y Cercanías: de momento solo la lista
+                  className="flex min-h-[44px] w-full items-center gap-3 rounded-lg px-1 text-left hover:bg-hundido disabled:hover:bg-transparent"
+                >
                   <span className="flex h-[26px] min-w-[26px] items-center justify-center rounded-full border-2 border-[#111] bg-hundido text-[12px] font-bold">
                     {i + 1}
                   </span>
